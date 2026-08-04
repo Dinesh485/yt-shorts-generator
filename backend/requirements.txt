@@ -1,0 +1,15 @@
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart==0.0.32
+aiofiles==25.1.0
+pydantic==2.13.4
+google-generativeai==0.8.6
+python-dotenv==1.2.2
+httpx==0.28.1
+websockets==17.0.1
+# GPU pipeline deps (install separately on desktop):
+# torch  (install via TheRock AMD wheels for RX 9070 XT)
+# diffusers>=0.30.0
+# transformers>=4.40.0
+# accelerate>=0.30.0
+# whisperx
