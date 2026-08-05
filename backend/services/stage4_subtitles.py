@@ -17,15 +17,17 @@ def transcribe_with_whisperx(audio_path: Path, language: str = "en") -> dict:
     import whisperx
 
     device = "cpu"
+    compute_type = "int8"
     try:
         import torch
         if torch.cuda.is_available():
             device = "cuda"
+            compute_type = "float16"
     except ImportError:
         pass
 
     # Load and transcribe
-    model = whisperx.load_model("base", device, compute_type="int8")
+    model = whisperx.load_model("base", device, compute_type=compute_type)
     audio = whisperx.load_audio(str(audio_path))
     result = model.transcribe(audio, batch_size=16, language=language[:2])
 
