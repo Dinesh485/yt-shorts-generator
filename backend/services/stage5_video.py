@@ -2,14 +2,16 @@
 Stage 5: Assemble final video with FFmpeg
 Images + Ken Burns + Transitions + Audio + Subtitles + Background Music
 """
-import json
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import AsyncGenerator
 
+import imageio_ffmpeg
+
 from models import Short, ProjectConfig, TransitionType, MusicConfig
 from project_manager import save_short, get_project_subdirs
+
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 
 def build_ffmpeg_command(
@@ -52,7 +54,7 @@ def build_ffmpeg_command(
     else:
         music_path = None
 
-    cmd = ["ffmpeg", "-y"]
+    cmd = [FFMPEG, "-y"]
 
     # Input images
     for scene in scenes_with_images:

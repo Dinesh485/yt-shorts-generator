@@ -25,6 +25,8 @@ yt-shorts-generator/
 │   ├── .env                  # API keys (not committed)
 │   └── requirements.txt
 ├── frontend/                 # React + Tailwind UI
+├── venv/                     # Python virtual environment (not committed)
+├── start.bat                 # Starts both backend and frontend
 └── projects/                 # All project data (not committed)
     └── mahabharata/
         ├── project.json
@@ -52,12 +54,11 @@ cd yt-shorts-generator
 ```cmd
 python -m venv venv
 venv\Scripts\activate
-cd backend
-pip install -r requirements.txt
+pip install -r backend\requirements.txt
 ```
 
 ### 3. Install PyTorch for AMD RX 9070 XT (gfx1201)
-Follow the AMD installation guide in `docs/AMD-INSTALLATION.md` or run:
+Make sure the venv is active, then run:
 ```cmd
 pip install --pre torch torchaudio torchvision rocm[devel] --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/
 ```
@@ -81,12 +82,9 @@ Edit `backend/.env`:
 GEMINI_API_KEY=your_key_here
 ```
 
-### 7. Install FFmpeg
-Download from https://ffmpeg.org/download.html and add to PATH.
-
-### 8. Start the backend
+### 7. Start everything
 ```cmd
-start-backend.bat
+start.bat
 ```
 
 ---

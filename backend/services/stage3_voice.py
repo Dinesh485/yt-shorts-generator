@@ -7,11 +7,15 @@ import subprocess
 from pathlib import Path
 from typing import AsyncGenerator
 
+import imageio_ffmpeg
+
 from models import Short, AudioSegment, ProjectConfig, Character
 from project_manager import (
     save_short, get_project_subdirs,
     load_characters, save_characters
 )
+
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 # Sample text used to generate the initial voice sample for a new character
 VOICE_SAMPLE_TEXT = (
@@ -118,7 +122,7 @@ async def stitch_audio_segments(
         # Create a silent pause file
         pause_path = output_path.parent / "_pause.wav"
         subprocess.run([
-            "ffmpeg", "-y", "-f", "lavfi",
+            FFMPEG, "-y", "-f", "lavfi",
             "-i", f"anullsrc=r=24000:cl=mono:d={pause_duration_ms/1000}",
             str(pause_path)
         ], capture_output=True)
@@ -132,7 +136,7 @@ async def stitch_audio_segments(
                     f.write(f"file '{pause_path.absolute()}'\n")
 
         result = subprocess.run([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            FFMPEG, "-y", "-f", "concat", "-safe", "0",
             "-i", str(concat_list),
             "-ar", "24000", "-ac", "1",
             str(output_path)
