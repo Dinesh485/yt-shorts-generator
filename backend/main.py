@@ -13,6 +13,7 @@ from models import (
     ProjectConfig, ProjectSummary, Character,
     Short, PipelineRunRequest
 )
+from wan2gp_client import check_connection
 from project_manager import (
     create_project, load_project, save_project,
     list_projects, delete_project,
@@ -37,6 +38,17 @@ app.add_middleware(
 # Serve project files (images, audio, video) as static files
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/projects", StaticFiles(directory=str(PROJECTS_DIR)), name="projects")
+
+
+# ─── Health ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+def health():
+    return {
+        "status": "ok",
+        "wan2gp": check_connection(),
+        "gemini_key": bool(os.getenv("GEMINI_API_KEY")),
+    }
 
 
 # ─── Projects ───────────────────────────────────────────────────────────────
@@ -184,6 +196,11 @@ async def pipeline_websocket(websocket: WebSocket, project_name: str):
             if event.get("event") == "error":
                 return
 
+        # Stage 1.5: Character reference sheets (new characters only)
+        from services.stage1b_characters import run_stage1b
+        async for event in run_stage1b(project_name, config):
+            await websocket.send_json(event)
+
         # Stages 2-5 per Short
         for short_id in short_ids:
             short = load_short(project_name, short_id)
@@ -198,7 +215,7 @@ async def pipeline_websocket(websocket: WebSocket, project_name: str):
 
             # Stage 2: Images
             from services.stage2_image import run_stage2
-            async for event in run_stage2(project_name, short, config, api_key):
+            async for event in run_stage2(project_name, short, config):
                 await websocket.send_json(event)
                 if event.get("event") == "error":
                     break

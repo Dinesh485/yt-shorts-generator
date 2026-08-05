@@ -37,8 +37,7 @@ export default function ShortDetail() {
         <div className="flex-1">
           <h1 className="text-xl font-bold text-white">{short.title || short.short_id}</h1>
           <div className="flex items-center gap-3 mt-1">
-            <span className={statusColor(short.status)}>{statusLabel(short.status)}</span>
-            <span className="text-[#555570] text-sm flex items-center gap-1">
+            <span className={statusColor(short.status)}>{statusLabel(short.status)}</span>            <span className="text-[#555570] text-sm flex items-center gap-1">
               <Clock size={12} />
               {short.total_duration_estimate}s
             </span>

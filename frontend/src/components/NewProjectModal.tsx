@@ -20,7 +20,6 @@ export default function NewProjectModal({ onClose }: { onClose: () => void }) {
     customStyle: '',
     language: 'English',
     target_duration: 75,
-    image_engine: 'flux-local' as 'flux-local' | 'gemini-imagen',
   })
 
   const mutation = useMutation({
@@ -39,11 +38,9 @@ export default function NewProjectModal({ onClose }: { onClose: () => void }) {
       style,
       language: form.language,
       target_duration: form.target_duration,
-      image_engine: form.image_engine,
       voice: {
         narrator_personality: 'deep, measured, epic storytelling tone',
         default_character_personality: 'clear, expressive',
-        tts_engine: 'qwen3-tts',
       },
       subtitles: {
         style: 'karaoke',
@@ -155,27 +152,6 @@ export default function NewProjectModal({ onClose }: { onClose: () => void }) {
               <div className="flex justify-between text-xs text-[#555570] mt-1">
                 <span>30s</span><span>180s</span>
               </div>
-            </div>
-          </div>
-
-          {/* Image Engine */}
-          <div>
-            <label className="block text-sm font-medium text-[#8888a8] mb-2">Image Engine</label>
-            <div className="grid grid-cols-2 gap-2">
-              {(['flux-local', 'gemini-imagen'] as const).map(engine => (
-                <button
-                  key={engine}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, image_engine: engine }))}
-                  className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
-                    form.image_engine === engine
-                      ? 'border-[#7c6fcd] bg-[#7c6fcd]/10 text-white'
-                      : 'border-[#2a2a3d] text-[#8888a8] hover:border-[#7c6fcd]/50'
-                  }`}
-                >
-                  {engine === 'flux-local' ? '⚡ FLUX Local' : '🌐 Gemini Imagen'}
-                </button>
-              ))}
             </div>
           </div>
 

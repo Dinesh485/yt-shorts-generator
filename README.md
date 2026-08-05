@@ -57,6 +57,14 @@ venv\Scripts\activate
 pip install -r backend\requirements.txt
 ```
 
+> **Note:** On the desktop, run the backend **inside Wan2GP's own venv** (the one with AMD PyTorch), not a separate venv. This is because `wan2gp_client.py` imports `shared/api.py` directly from the Wan2GP folder — it needs Wan2GP's dependencies available.
+>
+> Alternatively, install this project's requirements into Wan2GP's venv:
+> ```cmd
+> cd C:\WanGP
+> venv\Scripts\pip install fastapi uvicorn python-multipart aiofiles pydantic google-generativeai python-dotenv httpx websockets imageio-ffmpeg whisperx
+> ```
+
 ### 3. Install PyTorch for AMD RX 9070 XT (gfx1201)
 Make sure the venv is active, then run:
 ```cmd
@@ -76,10 +84,11 @@ cd Wan2GP
 # Follow Wan2GP README to start the server on port 7860
 ```
 
-### 6. Set up API key
+### 6. Set up API keys and paths
 Edit `backend/.env`:
 ```
 GEMINI_API_KEY=your_key_here
+WAN2GP_PATH=C:\WanGP
 ```
 
 ### 7. Start everything

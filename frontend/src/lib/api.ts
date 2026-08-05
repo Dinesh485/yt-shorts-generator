@@ -9,11 +9,9 @@ export interface ProjectConfig {
   style: string
   language: string
   target_duration: number
-  image_engine: 'flux-local' | 'gemini-imagen'
   voice: {
     narrator_personality: string
     default_character_personality: string
-    tts_engine: string
   }
   subtitles: {
     style: string
@@ -46,7 +44,6 @@ export interface ProjectSummary {
   style: string
   short_count: number
   done_count: number
-  image_engine: string
 }
 
 export interface Character {

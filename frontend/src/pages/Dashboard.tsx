@@ -109,7 +109,7 @@ function ProjectCard({
         </div>
         <div className="flex items-center gap-1 text-xs text-[#8888a8]">
           <Image size={12} />
-          <span>{project.image_engine === 'flux-local' ? 'Local FLUX' : 'Gemini'}</span>
+          <span>Wan2GP</span>
         </div>
       </div>
 

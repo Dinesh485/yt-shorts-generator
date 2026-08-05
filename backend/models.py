@@ -3,15 +3,6 @@ from typing import Optional, Literal
 from enum import Enum
 
 
-class ImageEngine(str, Enum):
-    flux_local = "flux-local"
-    gemini_imagen = "gemini-imagen"
-
-
-class TTSEngine(str, Enum):
-    qwen3_tts = "qwen3-tts"
-
-
 class TransitionType(str, Enum):
     crossfade = "crossfade"
     fade_black = "fade-black"
@@ -55,7 +46,6 @@ class VideoConfig(BaseModel):
 class VoiceConfig(BaseModel):
     narrator_personality: str = "deep, measured, epic storytelling tone"
     default_character_personality: str = "clear, expressive"
-    tts_engine: TTSEngine = TTSEngine.qwen3_tts
 
 
 class ProjectConfig(BaseModel):
@@ -63,7 +53,6 @@ class ProjectConfig(BaseModel):
     style: str = "Epic cinematic oil painting, highly detailed, dramatic lighting"
     language: str = "English"
     target_duration: int = Field(default=75, ge=30, le=180)
-    image_engine: ImageEngine = ImageEngine.flux_local
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     subtitles: SubtitleConfig = Field(default_factory=SubtitleConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
@@ -81,6 +70,7 @@ class Character(BaseModel):
     description: str
     role: str = ""
     first_seen: str = ""
+    reference_sheet: Optional[str] = None          # path to 4-direction reference image
     voice_profile: CharacterVoiceProfile = Field(
         default_factory=lambda: CharacterVoiceProfile(personality="clear, expressive")
     )
@@ -128,7 +118,7 @@ class Short(BaseModel):
 
 class PipelineRunRequest(BaseModel):
     source_type: Literal["text", "url", "file"]
-    source_content: str  # raw text, URL, or filename
+    source_content: str
     project_name: str
 
 
@@ -137,4 +127,3 @@ class ProjectSummary(BaseModel):
     style: str
     short_count: int = 0
     done_count: int = 0
-    image_engine: ImageEngine = ImageEngine.flux_local

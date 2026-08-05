@@ -151,7 +151,7 @@ export default function ProjectView() {
           <StatBadge icon={<CheckCircle2 size={12} />} label={`${doneCount} done`} color="green" />
           {errorCount > 0 && <StatBadge icon={<AlertCircle size={12} />} label={`${errorCount} errors`} color="red" />}
           <span className="text-xs px-2 py-1 rounded-lg bg-[#1a1a26] border border-[#2a2a3d] text-[#8888a8]">
-            {config.image_engine === 'flux-local' ? '⚡ FLUX Local' : '🌐 Gemini'}
+            Wan2GP
           </span>
         </div>
       </div>

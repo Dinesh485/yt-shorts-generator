@@ -20,6 +20,7 @@ def get_project_subdirs(project_name: str) -> dict[str, Path]:
         "images": base / "images",
         "audio": base / "audio",
         "voices": base / "voices",
+        "characters": base / "characters",
         "music": base / "music",
         "output": base / "output",
     }
@@ -77,7 +78,6 @@ def list_projects() -> list[ProjectSummary]:
             style=config.style,
             short_count=short_count,
             done_count=done_count,
-            image_engine=config.image_engine,
         ))
     return summaries
 

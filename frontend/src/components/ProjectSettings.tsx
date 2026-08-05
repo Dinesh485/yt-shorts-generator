@@ -61,19 +61,12 @@ export default function ProjectSettings({
 
       {/* Image */}
       <Section title="Image Generation">
-        <Field label="Engine">
-          <div className="flex gap-2">
-            {(['flux-local', 'gemini-imagen'] as const).map(e => (
-              <button
-                key={e}
-                type="button"
-                onClick={() => setForm(f => ({ ...f, image_engine: e }))}
-                className={`px-4 py-2 rounded-xl border text-sm transition-all ${form.image_engine === e ? 'border-[#7c6fcd] bg-[#7c6fcd]/10 text-white' : 'border-[#2a2a3d] text-[#8888a8] hover:border-[#7c6fcd]/50'}`}
-              >
-                {e === 'flux-local' ? '⚡ FLUX Local' : '🌐 Gemini Imagen'}
-              </button>
-            ))}
-          </div>
+        <Field label="Models">
+          <p className="text-sm text-[#8888a8]">
+            Scene images: <span className="text-white">Krea 2 Raw</span> via Wan2GP
+            <br />
+            Character sheets: <span className="text-white">Ideogram 4</span> via Wan2GP
+          </p>
         </Field>
       </Section>
 
