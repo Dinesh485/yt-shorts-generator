@@ -26,7 +26,17 @@ if not exist "%WAN2GP_VENV%\Scripts\activate.bat" (
     exit /b 1
 )
 
-:: Start backend using Wan2GP's venv
+:: ─── AMD ROCm environment variables ───────────────────────────────────────
+set ROCM_HOME=%ROCM_ROOT%
+set PATH=%ROCM_ROOT%\lib\llvm\bin;%ROCM_BIN%;%PATH%
+set CC=clang-cl
+set CXX=clang-cl
+set DISTUTILS_USE_SDK=1
+set FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
+set TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+set MIOPEN_FIND_MODE=FAST
+
+:: Start backend
 start "Backend" cmd /k "call "%WAN2GP_VENV%\Scripts\activate.bat" && cd /d "%~dp0backend" && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 timeout /t 2 /nobreak >nul
