@@ -22,7 +22,7 @@ from project_manager import (
 
 def get_client(api_key: str):
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-2.5-flash")
+    return genai.GenerativeModel("gemini-3.6-flash")
 
 
 async def fetch_url_text(url: str) -> str:
