@@ -1,4 +1,5 @@
 import os
+import traceback
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -263,7 +264,7 @@ async def pipeline_websocket(websocket: WebSocket, project_name: str):
         pass
     except Exception as e:
         try:
-            await websocket.send_json({"event": "error", "message": str(e)})
+            await websocket.send_json({"event": "error", "message": f"Unhandled exception: {e}\n{traceback.format_exc()}"})
         except Exception:
             pass
 
