@@ -254,16 +254,19 @@ export default function ProjectView() {
                 </button>
 
                 {/* Logs */}
-                {logs.length > 0 && (
-                  <div className="bg-[#0a0a0f] border border-[#2a2a3d] rounded-xl p-3 h-48 overflow-y-auto font-mono text-xs space-y-1">
-                    {logs.map((log, i) => (
-                      <div key={i} className="text-[#8888a8]">
-                        <span className="text-[#555570]">&gt; </span>{log}
-                      </div>
-                    ))}
-                    <div ref={logsEndRef} />
-                  </div>
-                )}
+                <div className={cn(
+                  "bg-[#0a0a0f] border border-[#2a2a3d] rounded-xl p-3 h-48 overflow-y-auto font-mono text-xs space-y-1",
+                  !running && logs.length === 0 && "hidden"
+                )}>
+                  {logs.length === 0 ? (
+                    <div className="text-[#555570]">Starting pipeline...</div>
+                  ) : logs.map((log, i) => (
+                    <div key={i} className="text-[#8888a8]">
+                      <span className="text-[#555570]">&gt; </span>{log}
+                    </div>
+                  ))}
+                  <div ref={logsEndRef} />
+                </div>
               </div>
             </div>
 

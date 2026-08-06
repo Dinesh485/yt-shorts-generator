@@ -33,7 +33,7 @@ yt-shorts-generator/
 │   ├── .env.example              # Template — copy to .env and fill in
 │   └── requirements.txt
 ├── frontend/                     # React + Tailwind UI
-├── start.bat                     # Starts backend + frontend
+├── start.bat                     # Builds frontend and starts the backend
 └── projects/                     # All generated content (not committed)
     └── <project-name>/
         ├── project.json
@@ -79,7 +79,7 @@ Reads `WAN2GP_VENV` from `.env`, installs backend deps into Wan2GP's venv, and r
 ```cmd
 start.bat
 ```
-Reads `WAN2GP_VENV` from `.env` automatically and opens backend at http://localhost:8000 and frontend at http://localhost:5173.
+Opens backend at http://localhost:8000 and frontend at http://localhost:5173.
 
 ---
 
