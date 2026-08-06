@@ -6,7 +6,7 @@ Only generates for characters that don't already have a reference sheet.
 from pathlib import Path
 from typing import AsyncGenerator
 
-from models import ProjectConfig
+from app_models import ProjectConfig
 from project_manager import (
     load_characters, save_characters, get_project_subdirs
 )

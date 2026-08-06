@@ -10,7 +10,7 @@ from typing import AsyncGenerator
 
 import google.generativeai as genai
 
-from models import (
+from app_models import (
     ProjectConfig, Character, Short,
     AudioSegment, CharacterVoiceProfile
 )

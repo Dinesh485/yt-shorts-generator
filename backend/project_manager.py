@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import Optional
-from models import ProjectConfig, Character, Short, ProjectSummary
+from app_models import ProjectConfig, Character, Short, ProjectSummary
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from models import (
+from app_models import (
     ProjectConfig, ProjectSummary, Character,
     Short, PipelineRunRequest
 )

@@ -5,7 +5,7 @@ Each scene gets one image. Character reference sheets are fed in for consistency
 from pathlib import Path
 from typing import AsyncGenerator
 
-from models import Short, ProjectConfig
+from app_models import Short, ProjectConfig
 from project_manager import save_short, get_project_subdirs, load_characters
 from wan2gp_client import generate_image
 

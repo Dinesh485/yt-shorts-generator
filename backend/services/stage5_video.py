@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 
 import imageio_ffmpeg
 
-from models import Short, ProjectConfig, TransitionType
+from app_models import Short, ProjectConfig, TransitionType
 from project_manager import save_short, get_project_subdirs
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()

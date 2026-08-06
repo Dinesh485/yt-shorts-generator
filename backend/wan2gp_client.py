@@ -33,9 +33,10 @@ def get_session():
         raise RuntimeError(f"WAN2GP_PATH does not exist: {wan2gp_root}")
 
     # Add Wan2GP to sys.path so we can import shared/api.py
+    # Append (not insert at 0) to avoid shadowing our own modules
     wan2gp_str = str(wan2gp_root)
     if wan2gp_str not in sys.path:
-        sys.path.insert(0, wan2gp_str)
+        sys.path.append(wan2gp_str)
 
     from shared.api import init
     session = init(
