@@ -3,7 +3,7 @@ uvicorn==0.52.1
 python-multipart==0.0.32
 aiofiles==25.1.0
 pydantic==2.13.4
-google-genai
+google-generativeai
 python-dotenv==1.2.2
 httpx==0.28.1
 websockets

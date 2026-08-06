@@ -7,8 +7,7 @@ import httpx
 from pathlib import Path
 from typing import AsyncGenerator
 
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 from models import (
     ProjectConfig, Character, Short,
@@ -20,8 +19,9 @@ from project_manager import (
 )
 
 
-def get_client(api_key: str) -> genai.Client:
-    return genai.Client(api_key=api_key)
+def get_client(api_key: str):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-2.5-flash")
 
 
 async def fetch_url_text(url: str) -> str:
@@ -141,14 +141,7 @@ async def run_stage1(
 
     yield {"event": "progress", "message": "Sending to Gemini for script generation..."}
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.7,
-            max_output_tokens=8192,
-        )
-    )
+    response = client.generate_content(prompt)
 
     raw = response.text.strip()
     # Strip markdown code fences if present
