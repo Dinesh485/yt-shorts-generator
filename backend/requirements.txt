@@ -8,7 +8,4 @@ python-dotenv==1.2.2
 httpx==0.28.1
 websockets==17.0.1
 imageio-ffmpeg==0.6.0
-# Desktop only:
-# whisperx
-# (Wan2GP is used via its Python API — no pip install needed,
-#  just set WAN2GP_PATH in .env to point to the Wan2GP folder)
+whisperx

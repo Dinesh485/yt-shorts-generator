@@ -99,4 +99,5 @@ Reads `WAN2GP_VENV` from `.env` automatically and opens backend at http://localh
 - `projects/` is gitignored — all generated content stays local
 - Character reference sheets and voice samples are generated once per character and reused across all Shorts
 - The pipeline is resumable — already-generated assets are skipped on re-run
-- Wan2GP does not need to be running separately — the backend imports it directly via its Python API
+- Wan2GP does **not** need to be running separately — `start.bat` loads it directly into the backend process via its Python API
+- Do **not** run the Wan2GP web UI at the same time as this app — both would try to load models into GPU memory simultaneously
