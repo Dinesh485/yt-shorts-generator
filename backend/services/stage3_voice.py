@@ -15,7 +15,7 @@ from project_manager import (
     save_short, get_project_subdirs,
     load_characters, save_characters
 )
-from wan2gp_client import generate_tts
+from wan2gp_client import generate_tts_voice_design, generate_tts_clone
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -49,11 +49,12 @@ async def ensure_voice_sample(
     if char.voice_profile.sample_generated and sample_path.exists():
         return sample_path
 
-    # Generate sample from personality description
-    success = generate_tts(
+    # Generate sample using Voice Design
+    success = generate_tts_voice_design(
         text=VOICE_SAMPLE_TEXT,
         output_path=sample_path,
         voice_description=char.voice_profile.personality,
+        language=config.language[:2].lower() if config.language != "English" else "english",
     )
 
     if success:
@@ -162,11 +163,17 @@ async def run_stage3(
             "message": f"Audio {i+1}/{total}: [{segment.type}] {segment.text[:60]}..."
         }
 
-        success = generate_tts(
+        success = generate_tts_clone(
+            text=segment.text,
+            output_path=seg_file,
+            reference_audio=reference,
+            language="auto",
+            emotion=segment.voice_instruction,
+        ) if reference else generate_tts_voice_design(
             text=segment.text,
             output_path=seg_file,
             voice_description=voice_desc,
-            reference_audio=reference,
+            language="auto",
         )
 
         if success:

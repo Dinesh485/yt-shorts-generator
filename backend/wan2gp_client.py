@@ -168,31 +168,63 @@ def generate_character_sheet(
 
 # ─── TTS ─────────────────────────────────────────────────────────────────────
 
-def generate_tts(
+def generate_tts_voice_design(
     text: str,
     output_path: Path,
-    voice_description: str = "clear, expressive narrator",
-    reference_audio: Path | None = None,
+    voice_description: str,
+    language: str = "auto",
 ) -> bool:
     """
-    Generate speech using Qwen3-TTS.
-    If reference_audio is provided, clones that voice.
-    Otherwise uses voice_description for voice design.
+    Generate a voice sample from a text description using Qwen3-TTS Voice Design.
+    Used once per new character to create their reference voice sample.
+    - model_type: qwen3_tts_voicedesign
+    - prompt: text to speak
+    - alt_prompt: voice instruction description
+    - model_mode: language
+    Returns True on success.
+    """
+    try:
+        settings = {
+            "model_type": "qwen3_tts_voicedesign",
+            "prompt": text,
+            "alt_prompt": voice_description,
+            "model_mode": language,
+        }
+        files = _run_job(settings)
+        return _copy_first_output(files, output_path)
+
+    except Exception as e:
+        print(f"[Wan2GP TTS Voice Design] Error: {e}")
+        return False
+
+
+def generate_tts_clone(
+    text: str,
+    output_path: Path,
+    reference_audio: Path,
+    language: str = "auto",
+    emotion: str = "",
+) -> bool:
+    """
+    Generate speech by cloning a reference voice using Qwen3-TTS Base.
+    emotion is passed via alt_prompt — officially for reference transcript
+    but may influence emotional delivery. Worth testing.
     Returns True on success.
     """
     try:
         settings = {
             "model_type": "qwen3_tts_base",
             "prompt": text,
-            "voice_description": voice_description,
+            "audio_guide": str(reference_audio),
+            "audio_prompt_type": "A",
+            "model_mode": language,
         }
-
-        if reference_audio and reference_audio.exists():
-            settings["audio_ref"] = str(reference_audio)
+        if emotion:
+            settings["alt_prompt"] = emotion
 
         files = _run_job(settings)
         return _copy_first_output(files, output_path)
 
     except Exception as e:
-        print(f"[Wan2GP TTS] Error: {e}")
+        print(f"[Wan2GP TTS Clone] Error: {e}")
         return False
