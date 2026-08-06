@@ -104,7 +104,7 @@ def generate_image(
     """
     try:
         settings = {
-            "model_type": "krea2_raw",
+            "model_type": "krea2_turbo",
             "prompt": prompt,
             "resolution": f"{width}x{height}",
             "num_inference_steps": num_steps,
@@ -150,10 +150,10 @@ def generate_character_sheet(
         )
 
         settings = {
-            "model_type": "ideogram4",
+            "model_type": "krea2_turbo",
             "prompt": prompt,
             "resolution": "1024x1024",
-            "num_inference_steps": 30,
+            "num_inference_steps": 8,
             "seed": -1,
             "image_mode": 1,
         }
