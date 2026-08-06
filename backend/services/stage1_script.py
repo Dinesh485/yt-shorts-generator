@@ -61,7 +61,7 @@ EXISTING CHARACTERS (maintain consistency):
 
 For each Short, produce a JSON object with this exact structure:
 {{
-  "short_id": "short_{index:03d}",
+  "short_id": "short_{{index:03d}}",
   "title": "Short descriptive title",
   "total_duration_estimate": <seconds>,
   "scenes": [
