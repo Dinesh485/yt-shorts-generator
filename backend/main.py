@@ -50,6 +50,13 @@ def health():
     }
 
 
+@app.get("/api/wan2gp/tts-schema")
+def tts_schema():
+    """Discover the correct TTS settings fields from Wan2GP."""
+    from wan2gp_client import get_tts_schema
+    return get_tts_schema()
+
+
 # ─── Projects ───────────────────────────────────────────────────────────────
 
 @app.get("/api/projects", response_model=list[ProjectSummary])

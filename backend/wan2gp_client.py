@@ -70,8 +70,20 @@ def _run_job(settings: dict) -> list[str]:
         return result.generated_files
     else:
         for error in result.errors:
-            print(f"[Wan2GP] Error: {error.message}")
+            print(f"[Wan2GP] Error stage={error.stage}: {error.message}")
         return []
+
+
+def get_tts_schema() -> dict:
+    """
+    Print the accepted settings schema for the TTS model.
+    Call this once to discover correct field names.
+    """
+    session = get_session()
+    schema = session.get_model_schema("qwen3_tts_base")
+    import json
+    print("[Wan2GP TTS Schema]", json.dumps(schema, indent=2, default=str))
+    return schema or {}
 
 
 def _copy_first_output(generated_files: list[str], output_path: Path) -> bool:
