@@ -194,5 +194,6 @@ def generate_tts(
         return _copy_first_output(files, output_path)
 
     except Exception as e:
-        print(f"[Wan2GP TTS] Error: {e}")
+        import traceback
+        print(f"[Wan2GP TTS] Error: {e}\n{traceback.format_exc()}")
         return False

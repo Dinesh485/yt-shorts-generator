@@ -11,13 +11,16 @@ from project_manager import save_short, get_project_subdirs
 
 def transcribe_with_stable_ts(audio_path: Path, language: str = "en") -> list[dict]:
     """
-    Transcribe audio using stable-ts (wraps OpenAI Whisper).
-    Runs on CPU — fast enough for short audio (~75s takes ~5-10s).
+    Transcribe audio using stable-ts (wraps OpenAI Whisper) on CPU.
+    Fast enough for short audio (~75s takes ~5-10s on CPU).
     """
+    import warnings
     import stable_whisper
 
-    model = stable_whisper.load_model("base", device="cpu")
-    result = model.transcribe(str(audio_path), language=language[:2], word_timestamps=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = stable_whisper.load_model("base", device="cpu")
+        result = model.transcribe(str(audio_path), language=language[:2], word_timestamps=True)
 
     words = []
     for segment in result.segments:
