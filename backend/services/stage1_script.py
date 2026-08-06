@@ -7,11 +7,12 @@ import httpx
 from pathlib import Path
 from typing import AsyncGenerator
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from models import (
-    ProjectConfig, Character, Short, Scene,
-    DialogueLine, AudioSegment, CharacterVoiceProfile
+    ProjectConfig, Character, Short,
+    AudioSegment, CharacterVoiceProfile
 )
 from project_manager import (
     load_characters, save_characters,
@@ -19,8 +20,8 @@ from project_manager import (
 )
 
 
-def configure_gemini(api_key: str):
-    genai.configure(api_key=api_key)
+def get_client(api_key: str) -> genai.Client:
+    return genai.Client(api_key=api_key)
 
 
 async def fetch_url_text(url: str) -> str:
@@ -114,7 +115,7 @@ async def run_stage1(
     """
     Generator that yields progress events and saves Short JSONs.
     """
-    configure_gemini(api_key)
+    client = get_client(api_key)
 
     yield {"event": "stage", "stage": 1, "message": "Reading source text..."}
     source_text = await get_source_text(source_type, source_content, project_name)
@@ -140,10 +141,10 @@ async def run_stage1(
 
     yield {"event": "progress", "message": "Sending to Gemini for script generation..."}
 
-    model = genai.GenerativeModel("gemini-1.5-pro")
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=0.7,
             max_output_tokens=8192,
         )
