@@ -1,5 +1,4 @@
 import os
-import traceback
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -48,13 +47,6 @@ def health():
         "wan2gp": check_connection(),
         "gemini_key": bool(os.getenv("GEMINI_API_KEY")),
     }
-
-
-@app.get("/api/wan2gp/tts-schema")
-def tts_schema():
-    """Discover the correct TTS settings fields from Wan2GP."""
-    from wan2gp_client import get_tts_schema
-    return get_tts_schema()
 
 
 # ─── Projects ───────────────────────────────────────────────────────────────
@@ -272,7 +264,7 @@ async def pipeline_websocket(websocket: WebSocket, project_name: str):
         pass
     except Exception as e:
         try:
-            await websocket.send_json({"event": "error", "message": f"Unhandled exception: {e}\n{traceback.format_exc()}"})
+            await websocket.send_json({"event": "error", "message": str(e)})
         except Exception:
             pass
 

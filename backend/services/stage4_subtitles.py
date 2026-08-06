@@ -9,26 +9,38 @@ from app_models import Short, ProjectConfig
 from project_manager import save_short, get_project_subdirs
 
 
-def transcribe_with_stable_ts(audio_path: Path, language: str = "en") -> list[dict]:
+def transcribe_with_whisperx(audio_path: Path, language: str = "en") -> list[dict]:
     """
-    Transcribe audio using stable-ts (wraps OpenAI Whisper) on CPU.
-    Fast enough for short audio (~75s takes ~5-10s on CPU).
+    Transcribe audio using WhisperX with word-level timestamps.
+    Runs on GPU (CUDA/ROCm) when available, falls back to CPU.
+    Returns a flat list of word dicts with 'word', 'start', 'end' keys.
     """
-    import warnings
-    import stable_whisper
+    import torch
+    import whisperx
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = stable_whisper.load_model("base", device="cpu")
-        result = model.transcribe(str(audio_path), language=language[:2], word_timestamps=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    compute_type = "float16" if device == "cuda" else "int8"
+
+    model = whisperx.load_model("base", device, compute_type=compute_type)
+    audio = whisperx.load_audio(str(audio_path))
+    result = model.transcribe(audio, batch_size=16, language=language[:2])
+
+    # Align for word-level timestamps
+    model_a, metadata = whisperx.load_align_model(
+        language_code=result["language"], device=device
+    )
+    result = whisperx.align(
+        result["segments"], model_a, metadata, audio, device,
+        return_char_alignments=False
+    )
 
     words = []
-    for segment in result.segments:
-        for word in segment.words:
+    for segment in result.get("segments", []):
+        for word in segment.get("words", []):
             words.append({
-                "word": word.word.strip(),
-                "start": round(word.start, 3),
-                "end": round(word.end, 3),
+                "word": word.get("word", "").strip(),
+                "start": round(word.get("start", 0), 3),
+                "end": round(word.get("end", 0), 3),
             })
     return words
 
@@ -49,7 +61,6 @@ def words_to_ass_karaoke(
     base_color = _hex_to_ass_color(sub_cfg.base_color)
     max_words = sub_cfg.max_words_per_line
 
-    # Calculate vertical position
     if sub_cfg.position == "center":
         margin_v = video_height // 2
     elif sub_cfg.position == "bottom":
@@ -72,8 +83,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
     events = []
-
-    # Group words into lines of max_words
     chunks = [words[i:i+max_words] for i in range(0, len(words), max_words)]
 
     for chunk in chunks:
@@ -83,20 +92,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         start_time = chunk[0].get("start", 0)
         end_time = chunk[-1].get("end", start_time + 1)
 
-        # Build karaoke tagged line
-        # \k<duration_cs> tags each word with its duration in centiseconds
-        # \kf creates a fill effect (word highlighted as it's spoken)
         line_parts = []
         for word in chunk:
             w_start = word.get("start", start_time)
             w_end = word.get("end", w_start + 0.2)
             duration_cs = max(1, int((w_end - w_start) * 100))
             text = word.get("word", "").strip()
-            # \kf fills from left as word is spoken, \1c changes highlight color
             line_parts.append(f"{{\\kf{duration_cs}\\1c{highlight_color}}}{text}{{\\1c{base_color}}}")
 
         line_text = " ".join(line_parts)
-
         events.append(
             f"Dialogue: 0,{_seconds_to_ass(start_time)},{_seconds_to_ass(end_time)},"
             f"Default,,0,0,0,,{line_text}"
@@ -106,22 +110,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def _hex_to_ass_color(hex_color: str) -> str:
-    """Convert #RRGGBB to ASS &H00BBGGRR format."""
     hex_color = hex_color.lstrip("#")
-    r = hex_color[0:2]
-    g = hex_color[2:4]
-    b = hex_color[4:6]
+    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
     return f"&H00{b}{g}{r}"
 
 
 def _seconds_to_ass(seconds: float) -> str:
-    """Convert seconds to ASS timestamp format H:MM:SS.cc"""
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = seconds % 60
     cs = int((s % 1) * 100)
-    s = int(s)
-    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+    return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
 
 
 async def run_stage4(
@@ -129,9 +128,7 @@ async def run_stage4(
     short: Short,
     config: ProjectConfig,
 ) -> AsyncGenerator[dict, None]:
-    """
-    Transcribe stitched audio and generate ASS subtitle file.
-    """
+
     dirs = get_project_subdirs(project_name)
 
     if not short.audio_file:
@@ -147,22 +144,20 @@ async def run_stage4(
     short.status = "transcribing"
     save_short(project_name, short)
 
-    yield {"event": "progress", "message": "Transcribing audio with stable-ts (Whisper + ROCm)..."}
+    yield {"event": "progress", "message": "Transcribing audio with WhisperX..."}
 
     try:
         lang_code = config.language[:2].lower()
-        all_words = transcribe_with_stable_ts(audio_path, language=lang_code)
+        all_words = transcribe_with_whisperx(audio_path, language=lang_code)
 
         if not all_words:
             yield {"event": "warning", "message": "No words found in transcription"}
             return
 
-        # Save raw word-level JSON
         transcript_path = dirs["audio"] / f"{short.short_id}_transcript.json"
         transcript_path.write_text(json.dumps(all_words, indent=2))
         yield {"event": "progress", "message": f"Transcript saved: {len(all_words)} words"}
 
-        # Generate ASS karaoke subtitle file
         ass_content = words_to_ass_karaoke(all_words, config)
         ass_path = dirs["audio"] / f"{short.short_id}.ass"
         ass_path.write_text(ass_content, encoding="utf-8")

@@ -172,10 +172,8 @@ async def run_stage3(
         if success:
             segment.audio_file = str(seg_file)
             segment_files.append(seg_file)
-            yield {"event": "progress", "message": f"Audio {i+1}/{total} OK: {seg_file.name}"}
         else:
-            yield {"event": "error", "message": f"TTS failed for segment {i} — check backend console for full error. Text: {segment.text[:80]}"}
-            return
+            yield {"event": "warning", "message": f"TTS failed for segment {i}"}
 
     # Stitch all segments
     if segment_files:

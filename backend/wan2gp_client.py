@@ -74,18 +74,6 @@ def _run_job(settings: dict) -> list[str]:
         return []
 
 
-def get_tts_schema() -> dict:
-    """
-    Print the accepted settings schema for the TTS model.
-    Call this once to discover correct field names.
-    """
-    session = get_session()
-    schema = session.get_model_schema("qwen3_tts_base")
-    import json
-    print("[Wan2GP TTS Schema]", json.dumps(schema, indent=2, default=str))
-    return schema or {}
-
-
 def _copy_first_output(generated_files: list[str], output_path: Path) -> bool:
     """Copy the first generated file to output_path."""
     if not generated_files:
@@ -206,6 +194,5 @@ def generate_tts(
         return _copy_first_output(files, output_path)
 
     except Exception as e:
-        import traceback
-        print(f"[Wan2GP TTS] Error: {e}\n{traceback.format_exc()}")
+        print(f"[Wan2GP TTS] Error: {e}")
         return False
