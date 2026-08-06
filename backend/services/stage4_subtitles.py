@@ -2,11 +2,10 @@
 Stage 4: Transcribe audio with WhisperX → word-level JSON → ASS karaoke subtitles
 """
 import json
-import math
 from pathlib import Path
 from typing import AsyncGenerator
 
-from models import Short, ProjectConfig, SubtitleStyle
+from models import Short, ProjectConfig
 from project_manager import save_short, get_project_subdirs
 
 

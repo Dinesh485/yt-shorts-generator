@@ -13,8 +13,6 @@ import shutil
 from pathlib import Path
 from functools import lru_cache
 
-WAN2GP_PATH = os.getenv("WAN2GP_PATH", "")
-
 # ─── Session ─────────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
@@ -23,13 +21,14 @@ def get_session():
     Initialize and cache a single Wan2GP session.
     Called once — model stays warm for all subsequent requests.
     """
-    if not WAN2GP_PATH:
+    wan2gp_path = os.getenv("WAN2GP_PATH", "")
+    if not wan2gp_path:
         raise RuntimeError(
             "WAN2GP_PATH is not set in .env. "
             "Set it to the Wan2GP installation folder, e.g. C:\\WanGP"
         )
 
-    wan2gp_root = Path(WAN2GP_PATH)
+    wan2gp_root = Path(wan2gp_path)
     if not wan2gp_root.exists():
         raise RuntimeError(f"WAN2GP_PATH does not exist: {wan2gp_root}")
 

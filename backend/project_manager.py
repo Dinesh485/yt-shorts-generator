@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Optional
 from models import ProjectConfig, Character, Short, ProjectSummary

@@ -59,7 +59,6 @@ async def run_stage2(
         success = generate_image(
             prompt=prompt,
             output_path=output_path,
-            model_type="krea2_raw",
             width=1080,
             height=1920,
             reference_images=reference_images or None,
