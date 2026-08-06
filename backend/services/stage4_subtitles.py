@@ -12,15 +12,11 @@ from project_manager import save_short, get_project_subdirs
 def transcribe_with_stable_ts(audio_path: Path, language: str = "en") -> list[dict]:
     """
     Transcribe audio using stable-ts (wraps OpenAI Whisper).
-    Uses PyTorch directly so it works on AMD ROCm.
-    Returns a flat list of word dicts with 'word', 'start', 'end' keys.
+    Runs on CPU — fast enough for short audio (~75s takes ~5-10s).
     """
     import stable_whisper
-    import torch
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    model = stable_whisper.load_model("base", device=device)
+    model = stable_whisper.load_model("base", device="cpu")
     result = model.transcribe(str(audio_path), language=language[:2], word_timestamps=True)
 
     words = []
