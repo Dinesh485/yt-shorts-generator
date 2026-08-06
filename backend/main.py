@@ -185,79 +185,80 @@ async def pipeline_websocket(websocket: WebSocket, project_name: str):
 
         await websocket.send_json({"event": "start", "message": "Pipeline started"})
 
-        # Stage 1: Script generation
+        # Stage 1: Script generation — produces one Short
         from services.stage1_script import run_stage1
-        short_ids = []
+        short_id = None
         async for event in run_stage1(project_name, request.source_type, request.source_content, config, api_key):
             await websocket.send_json(event)
             if event.get("event") == "short_created":
-                short_ids.append(event["short_id"])
+                short_id = event["short_id"]
             if event.get("event") == "error":
                 return
+
+        if not short_id:
+            await websocket.send_json({"event": "error", "message": "Stage 1 produced no Short"})
+            return
 
         # Stage 1.5: Character reference sheets (new characters only)
         from services.stage1b_characters import run_stage1b
         async for event in run_stage1b(project_name, config):
             await websocket.send_json(event)
 
-        # Stages 2-5 per Short
-        for short_id in short_ids:
-            short = load_short(project_name, short_id)
-            if not short:
-                continue
+        # Stages 2-5 for the Short
+        short = load_short(project_name, short_id)
+        if not short:
+            await websocket.send_json({"event": "error", "message": f"Short {short_id} not found after Stage 1"})
+            return
 
-            await websocket.send_json({
-                "event": "short_start",
-                "short_id": short_id,
-                "message": f"Processing {short_id}: {short.title}"
-            })
+        await websocket.send_json({
+            "event": "short_start",
+            "short_id": short_id,
+            "message": f"Processing: {short.title}"
+        })
 
-            # Stage 2: Images
-            from services.stage2_image import run_stage2
-            async for event in run_stage2(project_name, short, config):
-                await websocket.send_json(event)
-                if event.get("event") == "error":
-                    break
+        # Stage 2: Images
+        from services.stage2_image import run_stage2
+        async for event in run_stage2(project_name, short, config):
+            await websocket.send_json(event)
+            if event.get("event") == "error":
+                return
 
-            # Reload short after stage 2
-            short = load_short(project_name, short_id)
+        short = load_short(project_name, short_id)
 
-            # Stage 3: Voice
-            from services.stage3_voice import run_stage3
-            async for event in run_stage3(project_name, short, config):
-                await websocket.send_json(event)
-                if event.get("event") == "error":
-                    break
+        # Stage 3: Voice
+        from services.stage3_voice import run_stage3
+        async for event in run_stage3(project_name, short, config):
+            await websocket.send_json(event)
+            if event.get("event") == "error":
+                return
 
-            # Reload short after stage 3
-            short = load_short(project_name, short_id)
+        short = load_short(project_name, short_id)
 
-            # Stage 4: Subtitles
-            from services.stage4_subtitles import run_stage4
-            async for event in run_stage4(project_name, short, config):
-                await websocket.send_json(event)
-                if event.get("event") == "error":
-                    break
+        # Stage 4: Subtitles
+        from services.stage4_subtitles import run_stage4
+        async for event in run_stage4(project_name, short, config):
+            await websocket.send_json(event)
+            if event.get("event") == "error":
+                return
 
-            # Reload short after stage 4
-            short = load_short(project_name, short_id)
+        short = load_short(project_name, short_id)
 
-            # Stage 5: Video assembly
-            from services.stage5_video import run_stage5
-            async for event in run_stage5(project_name, short, config):
-                await websocket.send_json(event)
-                if event.get("event") == "error":
-                    break
+        # Stage 5: Video assembly
+        from services.stage5_video import run_stage5
+        async for event in run_stage5(project_name, short, config):
+            await websocket.send_json(event)
+            if event.get("event") == "error":
+                return
 
-            await websocket.send_json({
-                "event": "short_done",
-                "short_id": short_id,
-                "message": f"Short {short_id} complete"
-            })
+        await websocket.send_json({
+            "event": "short_done",
+            "short_id": short_id,
+            "message": f"Short complete: {short.title}"
+        })
 
         await websocket.send_json({
             "event": "pipeline_complete",
-            "message": f"All {len(short_ids)} Shorts generated successfully!"
+            "message": "Short generated successfully!"
         })
 
     except WebSocketDisconnect:

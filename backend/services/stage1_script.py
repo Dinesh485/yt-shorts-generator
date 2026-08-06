@@ -47,11 +47,10 @@ async def get_source_text(source_type: str, source_content: str, project_name: s
         raise ValueError(f"Unknown source type: {source_type}")
 
 
-SCRIPT_PROMPT = """You are a creative director producing YouTube Shorts from classic literature and mythology.
+SCRIPT_PROMPT = """You are a creative director producing a YouTube Short from classic literature and mythology.
 
-Given the following source text, break it into multiple YouTube Shorts.
-Each Short should be approximately {target_duration} seconds when narrated aloud (roughly {word_count} words of spoken content).
-Cover ALL the content — do not skip anything. Be accurate to the source.
+Given the following source text, produce exactly ONE YouTube Short of approximately {target_duration} seconds when narrated aloud (roughly {word_count} words of spoken content).
+Be accurate to the source. Rewrite it in modern, engaging language suitable for a general audience.
 
 Art style for images: {style}
 Language: {language}
@@ -59,11 +58,11 @@ Language: {language}
 EXISTING CHARACTERS (maintain consistency):
 {characters_json}
 
-For each Short, produce a JSON object with this exact structure:
+Produce a single JSON object with this exact structure:
 {{
-  "short_id": "short_{{index:03d}}",
+  "short_id": "short_001",
   "title": "Short descriptive title",
-  "total_duration_estimate": <seconds>,
+  "total_duration_estimate": {target_duration},
   "scenes": [
     {{
       "scene_id": 1,
@@ -97,9 +96,8 @@ IMPORTANT RULES:
 - audio_sequence is the ordered list of ALL spoken content (narration and dialogue interleaved naturally)
 - image_prompt must include the art style: "{style}"
 - image_prompt must describe the scene visually with character descriptions from the archive
-- Keep each Short self-contained — a viewer should understand it without prior context
 - mood must be one of: battle, dialogue, tragedy, celebration, default
-- Return a JSON array of Short objects. No markdown, no explanation, just the JSON array.
+- Return ONLY the JSON object. No markdown, no explanation, no array wrapper.
 
 SOURCE TEXT:
 {source_text}"""
@@ -154,7 +152,7 @@ async def run_stage1(
             style=config.style,
             language=config.language,
             characters_json=chars_json,
-            source_text=source_text[:50000],
+            source_text=source_text[:10000],
         )
         yield {"event": "progress", "message": f"Prompt built: {len(prompt)} chars"}
     except Exception as e:
@@ -183,8 +181,17 @@ async def run_stage1(
         raw = raw.strip()
         yield {"event": "progress", "message": f"Cleaned response first 200: {raw[:200]!r}"}
 
-        shorts_data = json.loads(raw)
-        yield {"event": "progress", "message": f"Parsed {len(shorts_data)} Shorts from Gemini"}
+        short_data = json.loads(raw)
+
+        # Gemini sometimes wraps in an array anyway — unwrap if so
+        if isinstance(short_data, list):
+            if len(short_data) == 0:
+                yield {"event": "error", "message": "Gemini returned an empty array"}
+                return
+            short_data = short_data[0]
+            yield {"event": "progress", "message": "Unwrapped single Short from array"}
+
+        yield {"event": "progress", "message": f"Parsed Short: {short_data.get('title', '?')}"}
     except json.JSONDecodeError as e:
         yield {"event": "error", "message": f"JSON parse failed: {e} — raw starts with: {raw[:300]!r}"}
         return
@@ -195,20 +202,19 @@ async def run_stage1(
     # ── Character archive update ───────────────────────────────────────────
     try:
         new_char_count = 0
-        for short_data in shorts_data:
-            for nc in short_data.get("new_characters", []):
-                name = nc.get("name", "")
-                if name and name not in characters:
-                    characters[name] = Character(
-                        name=name,
-                        description=nc.get("description", ""),
-                        role=nc.get("role", ""),
-                        first_seen=project_name,
-                        voice_profile=CharacterVoiceProfile(
-                            personality=nc.get("voice_profile", {}).get("personality", "clear, expressive")
-                        )
+        for nc in short_data.get("new_characters", []):
+            name = nc.get("name", "")
+            if name and name not in characters:
+                characters[name] = Character(
+                    name=name,
+                    description=nc.get("description", ""),
+                    role=nc.get("role", ""),
+                    first_seen=project_name,
+                    voice_profile=CharacterVoiceProfile(
+                        personality=nc.get("voice_profile", {}).get("personality", "clear, expressive")
                     )
-                    new_char_count += 1
+                )
+                new_char_count += 1
 
         if new_char_count > 0:
             save_characters(project_name, characters)
@@ -217,28 +223,27 @@ async def run_stage1(
         yield {"event": "error", "message": f"Character archive update failed: {e}\n{traceback.format_exc()}"}
         return
 
-    # ── Save Shorts ────────────────────────────────────────────────────────
-    yield {"event": "progress", "message": f"Saving {len(shorts_data)} Short JSONs..."}
-    for i, short_data in enumerate(shorts_data):
-        try:
-            short_data.pop("new_characters", None)
-            short_data["style"] = config.style
-            short_data["status"] = "pending"
+    # ── Save Short ────────────────────────────────────────────────────────
+    yield {"event": "progress", "message": "Saving Short JSON..."}
+    try:
+        short_data.pop("new_characters", None)
+        short_data["style"] = config.style
+        short_data["status"] = "pending"
 
-            if "short_id" not in short_data:
-                short_data["short_id"] = f"short_{i+1:03d}"
+        if "short_id" not in short_data:
+            short_data["short_id"] = "short_001"
 
-            yield {"event": "progress", "message": f"Validating Short {i+1}: {short_data.get('short_id')} — {short_data.get('title', '?')}"}
-            short = Short.model_validate(short_data)
-            save_short(project_name, short)
-            yield {
-                "event": "short_created",
-                "short_id": short.short_id,
-                "title": short.title,
-                "message": f"Short {i+1}/{len(shorts_data)}: {short.title}"
-            }
-        except Exception as e:
-            yield {"event": "error", "message": f"Failed to save Short {i+1}: {e}\n{traceback.format_exc()}"}
-            return
+        yield {"event": "progress", "message": f"Validating Short: {short_data.get('short_id')} — {short_data.get('title', '?')}"}
+        short = Short.model_validate(short_data)
+        save_short(project_name, short)
+        yield {
+            "event": "short_created",
+            "short_id": short.short_id,
+            "title": short.title,
+            "message": f"Short created: {short.title}"
+        }
+    except Exception as e:
+        yield {"event": "error", "message": f"Failed to save Short: {e}\n{traceback.format_exc()}"}
+        return
 
-    yield {"event": "stage_complete", "stage": 1, "message": f"Stage 1 complete. {len(shorts_data)} Shorts queued."}
+    yield {"event": "stage_complete", "stage": 1, "message": "Stage 1 complete. 1 Short queued."}
