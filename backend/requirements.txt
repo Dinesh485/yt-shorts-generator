@@ -8,4 +8,5 @@ python-dotenv==1.2.2
 httpx==0.28.1
 websockets
 imageio-ffmpeg==0.6.0
-whisperx
+openai-whisper
+stable-ts

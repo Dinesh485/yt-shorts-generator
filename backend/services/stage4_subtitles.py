@@ -9,37 +9,29 @@ from app_models import Short, ProjectConfig
 from project_manager import save_short, get_project_subdirs
 
 
-def transcribe_with_whisperx(audio_path: Path, language: str = "en") -> dict:
+def transcribe_with_stable_ts(audio_path: Path, language: str = "en") -> list[dict]:
     """
-    Run WhisperX on the audio file and return word-level transcript.
+    Transcribe audio using stable-ts (wraps OpenAI Whisper).
+    Uses PyTorch directly so it works on AMD ROCm.
+    Returns a flat list of word dicts with 'word', 'start', 'end' keys.
     """
-    import whisperx
+    import stable_whisper
+    import torch
 
-    device = "cpu"
-    compute_type = "int8"
-    try:
-        import torch
-        if torch.cuda.is_available():
-            device = "cuda"
-            compute_type = "float16"
-    except ImportError:
-        pass
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Load and transcribe
-    model = whisperx.load_model("base", device, compute_type=compute_type)
-    audio = whisperx.load_audio(str(audio_path))
-    result = model.transcribe(audio, batch_size=16, language=language[:2])
+    model = stable_whisper.load_model("base", device=device)
+    result = model.transcribe(str(audio_path), language=language[:2], word_timestamps=True)
 
-    # Align for word-level timestamps
-    model_a, metadata = whisperx.load_align_model(
-        language_code=result["language"], device=device
-    )
-    result = whisperx.align(
-        result["segments"], model_a, metadata, audio, device,
-        return_char_alignments=False
-    )
-
-    return result
+    words = []
+    for segment in result.segments:
+        for word in segment.words:
+            words.append({
+                "word": word.word.strip(),
+                "start": round(word.start, 3),
+                "end": round(word.end, 3),
+            })
+    return words
 
 
 def words_to_ass_karaoke(
@@ -156,16 +148,11 @@ async def run_stage4(
     short.status = "transcribing"
     save_short(project_name, short)
 
-    yield {"event": "progress", "message": "Transcribing audio with WhisperX..."}
+    yield {"event": "progress", "message": "Transcribing audio with stable-ts (Whisper + ROCm)..."}
 
     try:
         lang_code = config.language[:2].lower()
-        result = transcribe_with_whisperx(audio_path, language=lang_code)
-
-        # Extract all words from all segments
-        all_words = []
-        for segment in result.get("segments", []):
-            all_words.extend(segment.get("words", []))
+        all_words = transcribe_with_stable_ts(audio_path, language=lang_code)
 
         if not all_words:
             yield {"event": "warning", "message": "No words found in transcription"}
@@ -173,7 +160,7 @@ async def run_stage4(
 
         # Save raw word-level JSON
         transcript_path = dirs["audio"] / f"{short.short_id}_transcript.json"
-        transcript_path.write_text(json.dumps(result, indent=2))
+        transcript_path.write_text(json.dumps(all_words, indent=2))
         yield {"event": "progress", "message": f"Transcript saved: {len(all_words)} words"}
 
         # Generate ASS karaoke subtitle file
