@@ -1,8 +1,8 @@
 @echo off
-echo YT Shorts Generator — Installation
+echo YT Shorts Generator - Installation
 echo.
 
-:: Load .env file
+:: Check .env exists
 if not exist "%~dp0backend\.env" (
     echo ERROR: backend\.env not found.
     echo Please copy backend\.env.example to backend\.env and fill in your values first.
@@ -10,29 +10,30 @@ if not exist "%~dp0backend\.env" (
     exit /b 1
 )
 
-for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0backend\.env") do (
-    if not "%%A"=="" if not "%%A:~0,1%"=="#" set "%%A=%%B"
-)
+:: Parse WAN2GP_VENV from .env
+set WAN2GP_VENV=
+for /f "tokens=1,* delims==" %%A in ('findstr /i "WAN2GP_VENV" "%~dp0backend\.env"') do set WAN2GP_VENV=%%B
 
-:: Validate
 if "%WAN2GP_VENV%"=="" (
-    echo ERROR: WAN2GP_VENV is not set in backend\.env
+    echo ERROR: WAN2GP_VENV not found in backend\.env
     pause
     exit /b 1
 )
 
-if not exist "%WAN2GP_VENV%\Scripts\activate" (
-    echo ERROR: Wan2GP venv not found at: %WAN2GP_VENV%
+echo Found Wan2GP venv: %WAN2GP_VENV%
+
+if not exist "%WAN2GP_VENV%\Scripts\activate.bat" (
+    echo ERROR: Venv not found at: %WAN2GP_VENV%
     echo Check WAN2GP_VENV in backend\.env
     pause
     exit /b 1
 )
 
 :: Install backend dependencies
-echo Installing backend dependencies into Wan2GP venv...
-echo Venv: %WAN2GP_VENV%
 echo.
-call "%WAN2GP_VENV%\Scripts\activate" && pip install -r "%~dp0backend\requirements.txt"
+echo Installing backend dependencies...
+call "%WAN2GP_VENV%\Scripts\activate.bat"
+pip install -r "%~dp0backend\requirements.txt"
 
 if errorlevel 1 (
     echo.
@@ -41,11 +42,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Deactivate venv before npm
+call deactivate
+
 :: Install frontend dependencies
 echo.
 echo Installing frontend dependencies...
 cd /d "%~dp0frontend"
-npm install
+call npm install
 
 if errorlevel 1 (
     echo.
@@ -55,6 +59,8 @@ if errorlevel 1 (
 )
 
 echo.
+echo ----------------------------------------
 echo Installation complete!
 echo Run start.bat to launch the app.
+echo ----------------------------------------
 pause
