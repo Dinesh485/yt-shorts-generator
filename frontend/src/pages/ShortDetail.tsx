@@ -10,11 +10,11 @@ import { statusColor, statusLabel, cn } from '../lib/utils'
 
 type StageName = 'images' | 'audio' | 'subtitles' | 'video'
 
-const STAGES: { key: StageName; label: string; field: keyof Short }[] = [
-  { key: 'images', label: 'Scene Images', field: 'scenes' },
-  { key: 'audio', label: 'Voice Audio', field: 'audio_file' },
-  { key: 'subtitles', label: 'Subtitles', field: 'subtitle_file' },
-  { key: 'video', label: 'Video Assembly', field: 'video_file' },
+const STAGES: { key: StageName; label: string }[] = [
+  { key: 'images',    label: 'Scene Images'   },
+  { key: 'audio',     label: 'Voice Audio'    },
+  { key: 'subtitles', label: 'Subtitles'      },
+  { key: 'video',     label: 'Video Assembly' },
 ]
 
 function stageStatus(short: Short, stage: StageName): 'done' | 'partial' | 'none' {
@@ -25,9 +25,9 @@ function stageStatus(short: Short, stage: StageName): 'done' | 'partial' | 'none
     if (done < total) return 'partial'
     return 'done'
   }
-  if (stage === 'audio') return short.audio_file ? 'done' : 'none'
-  if (stage === 'subtitles') return short.subtitle_file ? 'done' : 'none'
-  if (stage === 'video') return short.video_file ? 'done' : 'none'
+  if (stage === 'audio')     return short.audio_file     ? 'done' : 'none'
+  if (stage === 'subtitles') return short.subtitle_file  ? 'done' : 'none'
+  if (stage === 'video')     return short.video_file     ? 'done' : 'none'
   return 'none'
 }
 
@@ -64,7 +64,7 @@ export default function ShortDetail() {
     const ws = new WebSocket(`ws://localhost:8000/ws/stage/${name}/${shortId}/${stage}`)
     wsRef.current = ws
 
-    ws.onopen = () => addLog(stage, `Starting ${stage}...`)
+    ws.onopen  = () => addLog(stage, `Starting ${stage}...`)
 
     ws.onmessage = (e) => {
       const event = JSON.parse(e.data)
@@ -76,12 +76,8 @@ export default function ShortDetail() {
       }
     }
 
-    ws.onerror = () => {
-      addLog(stage, 'WebSocket error')
-      setRunningStage(null)
-    }
-
-    ws.onclose = () => setRunningStage(null)
+    ws.onerror  = () => { addLog(stage, 'WebSocket error'); setRunningStage(null) }
+    ws.onclose  = () => setRunningStage(null)
   }
 
   const stopStage = () => {
@@ -99,6 +95,7 @@ export default function ShortDetail() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
         <button onClick={() => navigate(`/projects/${name}`)} className="text-[#8888a8] hover:text-white transition-colors">
@@ -108,9 +105,7 @@ export default function ShortDetail() {
           <h1 className="text-xl font-bold text-white">{short.title || short.short_id}</h1>
           <div className="flex items-center gap-3 mt-1">
             <span className={statusColor(short.status)}>{statusLabel(short.status)}</span>
-            <span className="text-[#555570] text-sm flex items-center gap-1">
-              <Clock size={12} />{short.total_duration_estimate}s
-            </span>
+            <span className="text-[#555570] text-sm flex items-center gap-1"><Clock size={12} />{short.total_duration_estimate}s</span>
             <span className="text-[#555570] text-sm">{short.scenes.length} scenes</span>
           </div>
         </div>
@@ -124,9 +119,10 @@ export default function ShortDetail() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
 
-        {/* Left: Video + Stage Controls */}
+        {/* Left column: preview + stage controls */}
         <div className="space-y-6">
-          {/* Video Preview */}
+
+          {/* Video preview */}
           <div>
             <h2 className="text-sm font-semibold text-white mb-3">Preview</h2>
             <div className="aspect-[9/16] bg-[#12121a] border border-[#2a2a3d] rounded-2xl overflow-hidden flex items-center justify-center max-w-xs">
@@ -141,7 +137,7 @@ export default function ShortDetail() {
             </div>
           </div>
 
-          {/* Audio */}
+          {/* Audio player */}
           {short.audio_file && (
             <div>
               <h2 className="text-sm font-semibold text-white mb-2">Audio</h2>
@@ -149,31 +145,28 @@ export default function ShortDetail() {
             </div>
           )}
 
-          {/* Stage Controls */}
+          {/* Pipeline stage controls */}
           <div>
             <h2 className="text-sm font-semibold text-white mb-3">Pipeline Stages</h2>
             <div className="space-y-2">
               {STAGES.map(({ key, label }) => {
-                const status = stageStatus(short, key)
+                const status   = stageStatus(short, key)
                 const isRunning = runningStage === key
-                const logs = stageLogs[key]
+                const logs     = stageLogs[key]
 
                 return (
                   <div key={key} className="bg-[#12121a] border border-[#2a2a3d] rounded-xl p-3">
                     <div className="flex items-center justify-between">
+                      {/* Status icon + label */}
                       <div className="flex items-center gap-2">
-                        {status === 'done' ? (
-                          <CheckCircle2 size={14} className="text-green-400" />
-                        ) : status === 'partial' ? (
-                          <AlertCircle size={14} className="text-yellow-400" />
-                        ) : (
-                          <XCircle size={14} className="text-[#555570]" />
-                        )}
+                        {status === 'done'    && <CheckCircle2 size={14} className="text-green-400" />}
+                        {status === 'partial' && <AlertCircle  size={14} className="text-yellow-400" />}
+                        {status === 'none'    && <XCircle      size={14} className="text-[#555570]" />}
                         <span className="text-sm text-white">{label}</span>
-                        {status === 'partial' && (
-                          <span className="text-xs text-yellow-400">partial</span>
-                        )}
+                        {status === 'partial' && <span className="text-xs text-yellow-400">partial</span>}
                       </div>
+
+                      {/* Run / Retry / Stop button */}
                       <button
                         onClick={isRunning ? stopStage : () => runStage(key)}
                         disabled={!!runningStage && !isRunning}
@@ -182,31 +175,32 @@ export default function ShortDetail() {
                           isRunning
                             ? 'bg-red-500/20 border border-red-500/50 text-red-400'
                             : status === 'done'
-                            ? 'bg-[#2a2a3d] text-[#8888a8] hover:text-white hover:bg-[#3a3a4d]'
-                            : 'bg-[#7c6fcd]/20 border border-[#7c6fcd]/50 text-[#7c6fcd] hover:bg-[#7c6fcd]/30',
+                              ? 'bg-[#2a2a3d] text-[#8888a8] hover:text-white hover:bg-[#3a3a4d]'
+                              : 'bg-[#7c6fcd]/20 border border-[#7c6fcd]/50 text-[#7c6fcd] hover:bg-[#7c6fcd]/30',
                           !!runningStage && !isRunning && 'opacity-40 cursor-not-allowed'
                         )}
                       >
                         {isRunning ? (
-                          <><RotateCcw size={11} className="animate-spin" /> Stop</>
+                          <><RotateCcw size={11} className="animate-spin" />Stop</>
                         ) : status === 'done' ? (
-                          <><RotateCcw size={11} /> Retry</>
+                          <><RotateCcw size={11} />Retry</>
                         ) : (
-                          <><Play size={11} /> Run</>
+                          <><Play size={11} />Run</>
                         )}
                       </button>
                     </div>
 
-                    {/* Log panel */}
+                    {/* Live log panel (shown when running or has logs) */}
                     {(isRunning || logs.length > 0) && (
                       <div className="mt-2 bg-[#0a0a0f] rounded-lg p-2 h-24 overflow-y-auto font-mono text-xs space-y-0.5">
-                        {logs.length === 0 ? (
-                          <div className="text-[#555570]">Starting...</div>
-                        ) : logs.map((log, i) => (
-                          <div key={i} className="text-[#8888a8]">
-                            <span className="text-[#555570]">&gt; </span>{log}
-                          </div>
-                        ))}
+                        {logs.length === 0
+                          ? <div className="text-[#555570]">Starting...</div>
+                          : logs.map((log, i) => (
+                              <div key={i} className="text-[#8888a8]">
+                                <span className="text-[#555570]">&gt; </span>{log}
+                              </div>
+                            ))
+                        }
                       </div>
                     )}
                   </div>
@@ -216,23 +210,23 @@ export default function ShortDetail() {
           </div>
         </div>
 
-        {/* Right: Scenes */}
+        {/* Right column: scenes */}
         <div className="xl:col-span-2">
           <h2 className="text-sm font-semibold text-white mb-4">Scenes</h2>
           <div className="space-y-4">
             {short.scenes.map(scene => (
               <div key={scene.scene_id} className="bg-[#12121a] border border-[#2a2a3d] rounded-2xl p-5">
+
+                {/* Scene header */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono text-[#7c6fcd] bg-[#7c6fcd]/10 px-2 py-0.5 rounded-full">
                       Scene {scene.scene_id}
                     </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1a1a26] text-[#8888a8] capitalize">
-                      {scene.mood}
-                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1a1a26] text-[#8888a8] capitalize">{scene.mood}</span>
                     {scene.image_file
                       ? <CheckCircle2 size={12} className="text-green-400" />
-                      : <XCircle size={12} className="text-[#555570]" />
+                      : <XCircle      size={12} className="text-[#555570]" />
                     }
                   </div>
                   <span className="text-xs text-[#555570] flex items-center gap-1">

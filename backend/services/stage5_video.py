@@ -38,7 +38,6 @@ def build_ffmpeg_command(
         raise ValueError("No scene images found")
 
     audio_path = (project_root / short.audio_file) if short.audio_file else None
-    subtitle_path = (project_root / short.subtitle_file) if short.subtitle_file else None
 
     # Determine background music
     music_moods = [s.mood for s in short.scenes]
@@ -157,14 +156,8 @@ def build_ffmpeg_command(
     filter_str = ";".join(filters)
     cmd += ["-filter_complex", filter_str]
 
-    # Map video — if subtitles exist, burn them inside the filter_complex
-    if subtitle_path and subtitle_path.exists():
-        ass_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\\\:")
-        # Append subtitle filter to the complex and remap output
-        cmd[-1] = filter_str + f";[vout]ass='{ass_escaped}'[vfinal]"
-        cmd += ["-map", "[vfinal]"]
-    else:
-        cmd += ["-map", "[vout]"]
+    # Map video
+    cmd += ["-map", "[vout]"]
 
     # Map audio
     if audio_map:
@@ -189,6 +182,34 @@ def build_ffmpeg_command(
     return cmd
 
 
+def build_subtitle_command(
+    input_path: Path,
+    subtitle_path: Path,
+    output_path: Path,
+) -> list[str]:
+    """
+    Second-pass FFmpeg command to burn ASS subtitles into an already-assembled video.
+    Uses -vf subtitles= which cannot be combined with -filter_complex.
+    """
+    # Escape path for subtitles filter — colons and backslashes must be escaped
+    ass_path = str(subtitle_path).replace("\\", "/")
+    # On Windows, drive letter colon must be escaped
+    if len(ass_path) > 1 and ass_path[1] == ":":
+        ass_path = ass_path[0] + "\\:" + ass_path[2:]
+
+    return [
+        FFMPEG, "-y",
+        "-i", str(input_path),
+        "-vf", f"subtitles='{ass_path}'",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        str(output_path)
+    ]
+
+
 async def run_stage5(
     project_name: str,
     short: Short,
@@ -211,20 +232,37 @@ async def run_stage5(
     yield {"event": "progress", "message": "Building FFmpeg command..."}
 
     try:
-        cmd = build_ffmpeg_command(short, config, output_path, project_dir)
-        yield {"event": "progress", "message": "Running FFmpeg assembly..."}
+        project_root = Path(__file__).parent.parent.parent
+        subtitle_path = (project_root / short.subtitle_file) if short.subtitle_file else None
+
+        # Pass 1: assemble video + audio (no subtitles)
+        no_sub_path = output_dir / f"{short.short_id}_nosub.mp4"
+        cmd = build_ffmpeg_command(short, config, no_sub_path, project_dir)
+        yield {"event": "progress", "message": "Pass 1: Assembling video and audio..."}
 
         result = subprocess.run(cmd, capture_output=True, text=True)
-
         if result.returncode != 0:
-            yield {
-                "event": "error",
-                "message": f"FFmpeg failed: {result.stderr[-500:]}"
-            }
+            yield {"event": "error", "message": f"FFmpeg pass 1 failed: {result.stderr[-500:]}"}
             short.status = "error"
             short.error = result.stderr[-500:]
             save_short(project_name, short)
             return
+
+        # Pass 2: burn subtitles if available
+        if subtitle_path and subtitle_path.exists():
+            yield {"event": "progress", "message": "Pass 2: Burning subtitles..."}
+            cmd2 = build_subtitle_command(no_sub_path, subtitle_path, output_path)
+            result2 = subprocess.run(cmd2, capture_output=True, text=True)
+            no_sub_path.unlink(missing_ok=True)  # clean up intermediate file
+            if result2.returncode != 0:
+                yield {"event": "error", "message": f"FFmpeg pass 2 (subtitles) failed: {result2.stderr[-500:]}"}
+                short.status = "error"
+                short.error = result2.stderr[-500:]
+                save_short(project_name, short)
+                return
+        else:
+            # No subtitles — just rename
+            no_sub_path.rename(output_path)
 
         short.video_file = str(output_path.relative_to(Path(__file__).parent.parent.parent))
         short.status = "done"
