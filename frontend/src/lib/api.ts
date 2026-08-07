@@ -103,6 +103,8 @@ export const projectsApi = {
 export const shortsApi = {
   list: (project: string) => api.get<Short[]>(`/projects/${project}/shorts`),
   get: (project: string, id: string) => api.get<Short>(`/projects/${project}/shorts/${id}`),
+  segments: (project: string, id: string) =>
+    api.get<{ index: number; url: string }[]>(`/projects/${project}/shorts/${id}/segments`),
 }
 
 export const charactersApi = {

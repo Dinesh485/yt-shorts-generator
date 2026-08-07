@@ -16,7 +16,7 @@ from project_manager import (
     create_project, load_project, save_project,
     list_projects, delete_project,
     load_characters, save_characters,
-    load_short, list_shorts,
+    load_short, save_short, list_shorts,
     get_project_subdirs, get_project_dir,
     PROJECTS_DIR
 )
@@ -135,6 +135,23 @@ def get_short(name: str, short_id: str):
     if not short:
         raise HTTPException(404)
     return short
+
+
+@app.get("/api/projects/{name}/shorts/{short_id}/segments")
+def get_audio_segments(name: str, short_id: str):
+    """List per-segment audio files for a short (relative URLs for the static server)."""
+    if not load_project(name):
+        raise HTTPException(404)
+    dirs = get_project_subdirs(name)
+    audio_dir = dirs["audio"] / short_id
+    if not audio_dir.exists():
+        return []
+    files = sorted(audio_dir.glob("seg_*.wav"))
+    project_root = Path(__file__).parent.parent
+    return [
+        {"index": int(f.stem.split("_")[1]), "url": str(f.relative_to(project_root)).replace("\\", "/")}
+        for f in files
+    ]
 
 
 # ─── File Upload ─────────────────────────────────────────────────────────────
