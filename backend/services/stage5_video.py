@@ -28,16 +28,17 @@ def build_ffmpeg_command(
     music_cfg = config.music
 
     # Collect scene images and their durations
+    project_root = Path(__file__).parent.parent.parent
     scenes_with_images = [
         s for s in short.scenes
-        if s.image_file and Path(s.image_file).exists()
+        if s.image_file and (project_root / s.image_file).exists()
     ]
 
     if not scenes_with_images:
         raise ValueError("No scene images found")
 
-    audio_path = Path(short.audio_file) if short.audio_file else None
-    subtitle_path = Path(short.subtitle_file) if short.subtitle_file else None
+    audio_path = (project_root / short.audio_file) if short.audio_file else None
+    subtitle_path = (project_root / short.subtitle_file) if short.subtitle_file else None
 
     # Determine background music
     music_moods = [s.mood for s in short.scenes]
@@ -58,7 +59,7 @@ def build_ffmpeg_command(
 
     # Input images
     for scene in scenes_with_images:
-        cmd += ["-loop", "1", "-t", str(scene.duration_estimate), "-i", str(scene.image_file)]
+        cmd += ["-loop", "1", "-t", str(scene.duration_estimate), "-i", str(project_root / scene.image_file)]
 
     # Input audio
     audio_input_idx = len(scenes_with_images)
@@ -70,7 +71,6 @@ def build_ffmpeg_command(
     if music_path:
         music_input_idx = audio_input_idx + (1 if audio_path else 0)
         cmd += ["-i", str(music_path)]
-
     # Build filter complex
     filters = []
     n = len(scenes_with_images)
