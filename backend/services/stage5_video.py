@@ -157,8 +157,14 @@ def build_ffmpeg_command(
     filter_str = ";".join(filters)
     cmd += ["-filter_complex", filter_str]
 
-    # Map video
-    cmd += ["-map", "[vout]"]
+    # Map video — if subtitles exist, burn them inside the filter_complex
+    if subtitle_path and subtitle_path.exists():
+        ass_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\\\:")
+        # Append subtitle filter to the complex and remap output
+        cmd[-1] = filter_str + f";[vout]ass='{ass_escaped}'[vfinal]"
+        cmd += ["-map", "[vfinal]"]
+    else:
+        cmd += ["-map", "[vout]"]
 
     # Map audio
     if audio_map:
@@ -166,12 +172,6 @@ def build_ffmpeg_command(
             cmd += ["-map", audio_map]
         else:
             cmd += ["-map", audio_map]
-
-    # Burn subtitles if available
-    if subtitle_path and subtitle_path.exists():
-        # Use ass filter for burning
-        ass_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\:")
-        cmd += ["-vf", f"ass='{ass_escaped}'"]
 
     # Output settings
     cmd += [
