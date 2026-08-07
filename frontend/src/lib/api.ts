@@ -107,6 +107,22 @@ export const shortsApi = {
     api.get<{ index: number; url: string }[]>(`/projects/${project}/shorts/${id}/segments`),
 }
 
+export interface JobStatus {
+  lines: string[]
+  total: number
+  done: boolean
+  error: string | null
+}
+
+export const jobsApi = {
+  startStage: (project: string, short_id: string, stage: string) =>
+    api.post<{ job_id: string }>(`/projects/${project}/jobs/stage`, { short_id, stage }),
+  startPipeline: (project: string, body: { source_type: string; source_content: string; project_name: string }) =>
+    api.post<{ job_id: string }>(`/projects/${project}/jobs/pipeline`, body),
+  logs: (job_id: string, since: number = 0) =>
+    api.get<JobStatus>(`/jobs/${job_id}/logs?since=${since}`),
+}
+
 export const charactersApi = {
   list: (project: string) => api.get<Record<string, Character>>(`/projects/${project}/characters`),
   update: (project: string, name: string, char: Character) =>

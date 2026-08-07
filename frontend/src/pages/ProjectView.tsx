@@ -6,7 +6,7 @@ import {
   ChevronLeft, Loader2, CheckCircle2, AlertCircle,
   Clock, Film, RotateCcw
 } from 'lucide-react'
-import { projectsApi, shortsApi, uploadApi, type Short } from '../lib/api'
+import { projectsApi, shortsApi, uploadApi, jobsApi, type Short } from '../lib/api'
 import { cn, statusColor, statusLabel, statusPercent } from '../lib/utils'
 import CharacterArchive from '../components/CharacterArchive'
 import ProjectSettings from '../components/ProjectSettings'
@@ -14,12 +14,7 @@ import ProjectSettings from '../components/ProjectSettings'
 type Tab = 'shorts' | 'characters' | 'settings'
 type SourceType = 'text' | 'url' | 'file'
 
-interface PipelineEvent {
-  event: string
-  message?: string
-  short_id?: string
-  stage?: number
-}
+const ACTIVE_STATUSES = new Set(['scripting', 'generating_images', 'generating_audio', 'transcribing', 'assembling'])
 
 export default function ProjectView() {
   const { name } = useParams<{ name: string }>()
@@ -33,8 +28,9 @@ export default function ProjectView() {
   const [uploadedFilename, setUploadedFilename] = useState('')
   const [running, setRunning] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
-  const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
+  const logOffsetRef = useRef(0)
+  const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { data: config } = useQuery({
     queryKey: ['project', name],
@@ -42,11 +38,11 @@ export default function ProjectView() {
     enabled: !!name,
   })
 
-  const { data: shorts = [], refetch: refetchShorts } = useQuery({
+  const { data: shorts = [] } = useQuery({
     queryKey: ['shorts', name],
     queryFn: () => shortsApi.list(name!).then(r => r.data),
     enabled: !!name,
-    refetchInterval: running ? 3000 : false,
+    refetchInterval: (running || shorts.some(s => ACTIVE_STATUSES.has(s.status))) ? 3000 : false,
   })
 
   useEffect(() => {
@@ -55,6 +51,33 @@ export default function ProjectView() {
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => [...prev.slice(-200), msg])
+  }, [])
+
+  // ── Log polling for pipeline job ──────────────────────────────────────────
+  const startLogPolling = useCallback((jobId: string) => {
+    logOffsetRef.current = 0
+    logPollRef.current = setInterval(async () => {
+      try {
+        const { data } = await jobsApi.logs(jobId, logOffsetRef.current)
+        if (data.lines.length > 0) {
+          logOffsetRef.current += data.lines.length
+          setLogs(prev => [...prev, ...data.lines].slice(-200))
+        }
+        if (data.done) {
+          clearInterval(logPollRef.current!)
+          logPollRef.current = null
+          setRunning(false)
+        }
+      } catch {
+        clearInterval(logPollRef.current!)
+        logPollRef.current = null
+        setRunning(false)
+      }
+    }, 1000)
+  }, [])
+
+  useEffect(() => () => {
+    if (logPollRef.current) clearInterval(logPollRef.current)
   }, [])
 
   const handleFileUpload = async (file: File) => {
@@ -68,60 +91,37 @@ export default function ProjectView() {
     }
   }
 
-  const startPipeline = () => {
+  const startPipeline = async () => {
     let content = ''
     if (sourceType === 'text') content = sourceText
     else if (sourceType === 'url') content = sourceUrl
     else if (sourceType === 'file') content = uploadedFilename
 
-    if (!content.trim()) {
-      addLog('Error: No source content provided')
-      return
-    }
+    if (!content.trim()) { addLog('Error: No source content provided'); return }
 
     setRunning(true)
     setLogs([])
+    addLog('Starting pipeline...')
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/pipeline/${name}`)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
+    try {
+      const { data } = await jobsApi.startPipeline(name!, {
         source_type: sourceType,
         source_content: content,
-        project_name: name,
-      }))
-      addLog('Pipeline started...')
-    }
-
-    ws.onmessage = (e) => {
-      const event: PipelineEvent = JSON.parse(e.data)
-      if (event.message) addLog(event.message)
-
-      if (event.event === 'pipeline_complete' || event.event === 'error') {
-        setRunning(false)
-        refetchShorts()
-        ws.close()
-      }
-      if (event.event === 'short_done') {
-        refetchShorts()
-      }
-    }
-
-    ws.onerror = () => {
-      addLog('WebSocket error — is the backend running?')
-      setRunning(false)
-    }
-
-    ws.onclose = () => {
+        project_name: name!,
+      })
+      addLog(`Job started: ${data.job_id}`)
+      startLogPolling(data.job_id)
+    } catch (e) {
+      addLog(`Failed to start pipeline: ${e}`)
       setRunning(false)
     }
   }
 
   const stopPipeline = () => {
-    wsRef.current?.close()
+    if (logPollRef.current) clearInterval(logPollRef.current)
+    logPollRef.current = null
     setRunning(false)
-    addLog('Pipeline stopped by user')
+    addLog('Stopped watching pipeline (job continues in background)')
   }
 
   if (!config) {

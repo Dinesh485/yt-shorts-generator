@@ -1,8 +1,9 @@
+import asyncio
 import os
+import uuid
 from pathlib import Path
-from typing import AsyncGenerator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -33,12 +34,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve project files (images, audio, video) as static files
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/projects", StaticFiles(directory=str(PROJECTS_DIR)), name="projects")
 
 
-# ─── Health ─────────────────────────────────────────────────────────────────
+# ─── Job registry ─────────────────────────────────────────────────────────────
+# job_id → {"logs": [...], "done": bool, "error": str|None}
+_jobs: dict[str, dict] = {}
+
+
+def _new_job() -> str:
+    job_id = uuid.uuid4().hex
+    _jobs[job_id] = {"logs": [], "done": False, "error": None}
+    return job_id
+
+
+def _log(job_id: str, msg: str):
+    if job_id in _jobs:
+        _jobs[job_id]["logs"].append(msg)
+
+
+def _finish(job_id: str, error: str | None = None):
+    if job_id in _jobs:
+        _jobs[job_id]["done"] = True
+        _jobs[job_id]["error"] = error
+
+
+# ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
@@ -49,7 +71,27 @@ def health():
     }
 
 
-# ─── Projects ───────────────────────────────────────────────────────────────
+# ─── Job log polling ──────────────────────────────────────────────────────────
+
+@app.get("/api/jobs/{job_id}/logs")
+def get_job_logs(job_id: str, since: int = 0):
+    """
+    Return log lines for a running/finished job starting at `since` offset.
+    Frontend polls this at ~1s while the job is active.
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    lines = job["logs"][since:]
+    return {
+        "lines": lines,
+        "total": len(job["logs"]),
+        "done": job["done"],
+        "error": job["error"],
+    }
+
+
+# ─── Projects ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/projects", response_model=list[ProjectSummary])
 def get_projects():
@@ -58,8 +100,7 @@ def get_projects():
 
 @app.post("/api/projects", response_model=ProjectConfig)
 def post_create_project(config: ProjectConfig):
-    existing = load_project(config.name)
-    if existing:
+    if load_project(config.name):
         raise HTTPException(400, f"Project '{config.name}' already exists")
     return create_project(config)
 
@@ -89,7 +130,7 @@ def del_project(name: str):
     return {"message": f"Project '{name}' deleted"}
 
 
-# ─── Characters ─────────────────────────────────────────────────────────────
+# ─── Characters ───────────────────────────────────────────────────────────────
 
 @app.get("/api/projects/{name}/characters", response_model=dict[str, Character])
 def get_characters(name: str):
@@ -120,7 +161,7 @@ def del_character(name: str, char_name: str):
     return {"message": f"Character '{char_name}' deleted"}
 
 
-# ─── Shorts ─────────────────────────────────────────────────────────────────
+# ─── Shorts ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/projects/{name}/shorts", response_model=list[Short])
 def get_shorts(name: str):
@@ -139,7 +180,6 @@ def get_short(name: str, short_id: str):
 
 @app.get("/api/projects/{name}/shorts/{short_id}/segments")
 def get_audio_segments(name: str, short_id: str):
-    """List per-segment audio files for a short (relative URLs for the static server)."""
     if not load_project(name):
         raise HTTPException(404)
     dirs = get_project_subdirs(name)
@@ -154,7 +194,7 @@ def get_audio_segments(name: str, short_id: str):
     ]
 
 
-# ─── File Upload ─────────────────────────────────────────────────────────────
+# ─── File uploads ─────────────────────────────────────────────────────────────
 
 @app.post("/api/projects/{name}/upload")
 async def upload_source_file(name: str, file: UploadFile = File(...)):
@@ -178,199 +218,184 @@ async def upload_music_file(name: str, file: UploadFile = File(...)):
     return {"filename": file.filename, "size": len(content)}
 
 
-# ─── Per-Stage WebSocket ──────────────────────────────────────────────────────
 
-@app.websocket("/ws/stage/{project_name}/{short_id}/{stage}")
-async def stage_websocket(websocket: WebSocket, project_name: str, short_id: str, stage: str):
-    """Run a single pipeline stage for a specific Short, with live log streaming."""
-    await websocket.accept()
+# ─── Background task runners ──────────────────────────────────────────────────
 
+async def _run_stage_task(job_id: str, project_name: str, short_id: str, stage: str):
     try:
         config = load_project(project_name)
         if not config:
-            await websocket.send_json({"event": "error", "message": f"Project '{project_name}' not found"})
+            _log(job_id, f"Error: project '{project_name}' not found")
+            _finish(job_id, "project not found")
             return
 
         short = load_short(project_name, short_id)
         if not short:
-            await websocket.send_json({"event": "error", "message": f"Short '{short_id}' not found"})
+            _log(job_id, f"Error: short '{short_id}' not found")
+            _finish(job_id, "short not found")
             return
 
-        api_key = os.getenv("GEMINI_API_KEY", "")
-
-        await websocket.send_json({"event": "start", "message": f"Running stage: {stage}"})
+        def emit(event: dict):
+            if event.get("message"):
+                _log(job_id, event["message"])
 
         if stage == "images":
-            # Clear existing images for regeneration
-            from project_manager import get_project_subdirs
             dirs = get_project_subdirs(project_name)
             images_dir = dirs["images"] / short_id
             if images_dir.exists():
-                import shutil
-                shutil.rmtree(images_dir)
+                import shutil; shutil.rmtree(images_dir)
             for scene in short.scenes:
                 scene.image_file = None
             save_short(project_name, short)
-
             from services.stage2_image import run_stage2
             async for event in run_stage2(project_name, short, config):
-                await websocket.send_json(event)
+                emit(event)
 
         elif stage == "audio":
-            # Clear existing audio
             dirs = get_project_subdirs(project_name)
             audio_dir = dirs["audio"] / short_id
             if audio_dir.exists():
-                import shutil
-                shutil.rmtree(audio_dir)
+                import shutil; shutil.rmtree(audio_dir)
             short.audio_file = None
             save_short(project_name, short)
-
             from services.stage3_voice import run_stage3
             async for event in run_stage3(project_name, short, config):
-                await websocket.send_json(event)
+                emit(event)
 
         elif stage == "subtitles":
-            # Clear existing subtitles
             short.subtitle_file = None
             save_short(project_name, short)
-            # Reload to get fresh audio_file
             short = load_short(project_name, short_id)
-
             from services.stage4_subtitles import run_stage4
             async for event in run_stage4(project_name, short, config):
-                await websocket.send_json(event)
+                emit(event)
 
         elif stage == "video":
-            # Clear existing video
             short.video_file = None
             short.status = "assembling"
             save_short(project_name, short)
-            # Reload fresh
             short = load_short(project_name, short_id)
-
             from services.stage5_video import run_stage5
             async for event in run_stage5(project_name, short, config):
-                await websocket.send_json(event)
+                emit(event)
 
         else:
-            await websocket.send_json({"event": "error", "message": f"Unknown stage: {stage}"})
+            _log(job_id, f"Error: unknown stage '{stage}'")
+            _finish(job_id, f"unknown stage: {stage}")
             return
 
-        await websocket.send_json({"event": "stage_complete", "message": f"Stage '{stage}' complete"})
+        _log(job_id, f"Stage '{stage}' complete")
+        _finish(job_id)
 
-    except WebSocketDisconnect:
-        pass
     except Exception as e:
-        try:
-            await websocket.send_json({"event": "error", "message": str(e)})
-        except Exception:
-            pass
+        _log(job_id, f"Error: {e}")
+        _finish(job_id, str(e))
 
-@app.websocket("/ws/pipeline/{project_name}")
-async def pipeline_websocket(websocket: WebSocket, project_name: str):
-    await websocket.accept()
 
+async def _run_pipeline_task(job_id: str, project_name: str, request: PipelineRunRequest):
     try:
-        # Receive run request
-        data = await websocket.receive_json()
-        request = PipelineRunRequest(**data)
-
         config = load_project(project_name)
         if not config:
-            await websocket.send_json({"event": "error", "message": f"Project '{project_name}' not found"})
-            return
+            _finish(job_id, "project not found"); return
 
         api_key = os.getenv("GEMINI_API_KEY", "")
         if not api_key:
-            await websocket.send_json({"event": "error", "message": "GEMINI_API_KEY not set in .env"})
-            return
+            _finish(job_id, "GEMINI_API_KEY not set"); return
 
-        await websocket.send_json({"event": "start", "message": "Pipeline started"})
+        def emit(event: dict):
+            if event.get("message"):
+                _log(job_id, event["message"])
 
-        # Stage 1: Script generation — produces one Short
+        _log(job_id, "Pipeline started")
+
         from services.stage1_script import run_stage1
         short_id = None
         async for event in run_stage1(project_name, request.source_type, request.source_content, config, api_key):
-            await websocket.send_json(event)
+            emit(event)
             if event.get("event") == "short_created":
                 short_id = event["short_id"]
             if event.get("event") == "error":
-                return
+                _finish(job_id, event.get("message", "stage 1 error")); return
 
         if not short_id:
-            await websocket.send_json({"event": "error", "message": "Stage 1 produced no Short"})
-            return
+            _finish(job_id, "Stage 1 produced no Short"); return
 
-        # Stage 1.5: Character reference sheets (new characters only)
         from services.stage1b_characters import run_stage1b
         async for event in run_stage1b(project_name, config):
-            await websocket.send_json(event)
+            emit(event)
 
-        # Stages 2-5 for the Short
         short = load_short(project_name, short_id)
         if not short:
-            await websocket.send_json({"event": "error", "message": f"Short {short_id} not found after Stage 1"})
-            return
+            _finish(job_id, f"Short {short_id} not found after Stage 1"); return
 
-        await websocket.send_json({
-            "event": "short_start",
-            "short_id": short_id,
-            "message": f"Processing: {short.title}"
-        })
+        _log(job_id, f"Processing: {short.title}")
 
-        # Stage 2: Images
         from services.stage2_image import run_stage2
         async for event in run_stage2(project_name, short, config):
-            await websocket.send_json(event)
+            emit(event)
             if event.get("event") == "error":
-                return
+                _finish(job_id, event.get("message")); return
 
         short = load_short(project_name, short_id)
 
-        # Stage 3: Voice
         from services.stage3_voice import run_stage3
         async for event in run_stage3(project_name, short, config):
-            await websocket.send_json(event)
+            emit(event)
             if event.get("event") == "error":
-                return
+                _finish(job_id, event.get("message")); return
 
         short = load_short(project_name, short_id)
 
-        # Stage 4: Subtitles
         from services.stage4_subtitles import run_stage4
         async for event in run_stage4(project_name, short, config):
-            await websocket.send_json(event)
+            emit(event)
             if event.get("event") == "error":
-                return
+                _finish(job_id, event.get("message")); return
 
         short = load_short(project_name, short_id)
 
-        # Stage 5: Video assembly
         from services.stage5_video import run_stage5
         async for event in run_stage5(project_name, short, config):
-            await websocket.send_json(event)
+            emit(event)
             if event.get("event") == "error":
-                return
+                _finish(job_id, event.get("message")); return
 
-        await websocket.send_json({
-            "event": "short_done",
-            "short_id": short_id,
-            "message": f"Short complete: {short.title}"
-        })
+        _log(job_id, f"Short complete: {short.title}")
+        _log(job_id, "Pipeline complete!")
+        _finish(job_id)
 
-        await websocket.send_json({
-            "event": "pipeline_complete",
-            "message": "Short generated successfully!"
-        })
-
-    except WebSocketDisconnect:
-        pass
     except Exception as e:
-        try:
-            await websocket.send_json({"event": "error", "message": str(e)})
-        except Exception:
-            pass
+        _log(job_id, f"Error: {e}")
+        _finish(job_id, str(e))
+
+
+# ─── Job trigger endpoints ────────────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class StageRequest(BaseModel):
+    short_id: str
+    stage: str
+
+
+@app.post("/api/projects/{name}/jobs/stage")
+async def start_stage(name: str, req: StageRequest):
+    """Start a single pipeline stage. Returns job_id immediately."""
+    if not load_project(name):
+        raise HTTPException(404)
+    job_id = _new_job()
+    asyncio.create_task(_run_stage_task(job_id, name, req.short_id, req.stage))
+    return {"job_id": job_id}
+
+
+@app.post("/api/projects/{name}/jobs/pipeline")
+async def start_pipeline(name: str, req: PipelineRunRequest):
+    """Start the full pipeline. Returns job_id immediately."""
+    if not load_project(name):
+        raise HTTPException(404)
+    job_id = _new_job()
+    asyncio.create_task(_run_pipeline_task(job_id, name, req))
+    return {"job_id": job_id}
 
 
 if __name__ == "__main__":

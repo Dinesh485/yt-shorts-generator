@@ -1,126 +1,86 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft, Download, Film, Image as ImageIcon, Clock,
   Loader2, Play, RotateCcw, CheckCircle2, AlertCircle,
-  XCircle, Mic, FileText, Video, Volume2, ZoomIn
+  XCircle, Mic, FileText, Video, Volume2, ZoomIn,
+  ChevronDown, ChevronUp, Terminal
 } from 'lucide-react'
-import { shortsApi, type Short, type Scene, type AudioSegment } from '../lib/api'
+import { shortsApi, jobsApi, type Short, type Scene, type AudioSegment } from '../lib/api'
 import { statusColor, statusLabel, cn } from '../lib/utils'
 
 type StageName = 'images' | 'audio' | 'subtitles' | 'video'
-type TabName = 'script' | StageName
+const BASE = 'http://localhost:8000'
 
-const STAGES: { key: StageName; label: string; icon: React.ReactNode }[] = [
-  { key: 'images',    label: 'Images',    icon: <ImageIcon size={14} /> },
-  { key: 'audio',     label: 'Audio',     icon: <Mic size={14} /> },
-  { key: 'subtitles', label: 'Subtitles', icon: <FileText size={14} /> },
-  { key: 'video',     label: 'Video',     icon: <Video size={14} /> },
-]
+// Map short.status values that indicate a stage is actively running on the backend
+const STATUS_TO_STAGE: Record<string, StageName> = {
+  generating_images: 'images',
+  generating_audio:  'audio',
+  transcribing:      'subtitles',
+  assembling:        'video',
+}
 
 function stageStatus(short: Short, stage: StageName): 'done' | 'partial' | 'none' {
   if (stage === 'images') {
     const total = short.scenes.length
-    const done = short.scenes.filter(s => s.image_file).length
+    const done  = short.scenes.filter(s => s.image_file).length
     if (done === 0) return 'none'
     if (done < total) return 'partial'
     return 'done'
   }
-  if (stage === 'audio')     return short.audio_file     ? 'done' : 'none'
-  if (stage === 'subtitles') return short.subtitle_file  ? 'done' : 'none'
-  if (stage === 'video')     return short.video_file     ? 'done' : 'none'
+  if (stage === 'audio')     return short.audio_file    ? 'done' : 'none'
+  if (stage === 'subtitles') return short.subtitle_file ? 'done' : 'none'
+  if (stage === 'video')     return short.video_file    ? 'done' : 'none'
   return 'none'
 }
 
-const BASE = 'http://localhost:8000'
-
-// ── Lightbox ─────────────────────────────────────────────────────────────────
+// ─── Lightbox ─────────────────────────────────────────────────────────────────
 function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <img
-        src={src}
-        alt="Scene preview"
+    <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={onClose}>
+      <img src={src} alt="Scene preview"
         className="max-h-full max-w-full object-contain rounded-xl shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      />
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl font-bold"
-      >✕</button>
+        onClick={e => e.stopPropagation()} />
+      <button onClick={onClose}
+        className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl font-bold leading-none">✕</button>
     </div>
   )
 }
 
-// ── Stage control bar (run / retry / stop + live logs) ───────────────────────
-function StageControl({
-  stage, label, status, isRunning, isDisabled, logs,
-  onRun, onStop,
-}: {
-  stage: StageName
-  label: string
-  status: 'done' | 'partial' | 'none'
-  isRunning: boolean
-  isDisabled: boolean
-  logs: string[]
-  onRun: () => void
-  onStop: () => void
-}) {
-  const logsRef = useRef<HTMLDivElement>(null)
+// ─── Log Panel ────────────────────────────────────────────────────────────────
+function LogPanel({ logs, isRunning }: { logs: string[]; isRunning: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(true)
 
   useEffect(() => {
-    if (logsRef.current) {
-      logsRef.current.scrollTop = logsRef.current.scrollHeight
-    }
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
   }, [logs])
 
+  // Auto-open when a run starts
+  useEffect(() => { if (isRunning) setOpen(true) }, [isRunning])
+
+  if (!isRunning && logs.length === 0) return null
+
   return (
-    <div className="bg-[#12121a] border border-[#2a2a3d] rounded-xl p-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {status === 'done'    && <CheckCircle2 size={14} className="text-green-400" />}
-          {status === 'partial' && <AlertCircle  size={14} className="text-yellow-400" />}
-          {status === 'none'    && <XCircle      size={14} className="text-[#555570]" />}
-          <span className="text-sm text-white">{label}</span>
-          {status === 'partial' && <span className="text-xs text-yellow-400">partial</span>}
-          {isRunning && <Loader2 size={12} className="animate-spin text-[#7c6fcd]" />}
-        </div>
-        <button
-          onClick={isRunning ? onStop : onRun}
-          disabled={isDisabled && !isRunning}
-          className={cn(
-            'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-            isRunning
-              ? 'bg-red-500/20 border border-red-500/50 text-red-400'
-              : status === 'done'
-                ? 'bg-[#2a2a3d] text-[#8888a8] hover:text-white hover:bg-[#3a3a4d]'
-                : 'bg-[#7c6fcd]/20 border border-[#7c6fcd]/50 text-[#7c6fcd] hover:bg-[#7c6fcd]/30',
-            isDisabled && !isRunning && 'opacity-40 cursor-not-allowed'
-          )}
-        >
-          {isRunning ? (
-            <><RotateCcw size={11} className="animate-spin" />Stop</>
-          ) : status === 'done' ? (
-            <><RotateCcw size={11} />Retry</>
-          ) : (
-            <><Play size={11} />Run</>
-          )}
-        </button>
-      </div>
-      {(isRunning || logs.length > 0) && (
-        <div
-          ref={logsRef}
-          className="mt-2 bg-[#0a0a0f] rounded-lg p-2 h-28 overflow-y-auto font-mono text-xs space-y-0.5"
-        >
+    <div className="mt-4 border border-[#2a2a3d] rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-[#0d0d14] hover:bg-[#12121a] transition-colors text-xs text-[#555570]"
+      >
+        <Terminal size={11} />
+        <span className="font-mono">logs</span>
+        {isRunning && <Loader2 size={10} className="animate-spin text-[#7c6fcd] ml-1" />}
+        <span className="ml-auto">{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
+      </button>
+      {open && (
+        <div ref={ref}
+          className="bg-[#0a0a0f] p-3 h-36 overflow-y-auto font-mono text-xs space-y-0.5">
           {logs.length === 0
-            ? <div className="text-[#555570]">Starting...</div>
-            : logs.map((log, i) => (
+            ? <span className="text-[#555570]">Starting...</span>
+            : logs.map((l, i) => (
                 <div key={i} className="text-[#8888a8]">
-                  <span className="text-[#555570]">&gt; </span>{log}
+                  <span className="text-[#555570]">&gt; </span>{l}
                 </div>
               ))
           }
@@ -130,98 +90,128 @@ function StageControl({
   )
 }
 
-// ── Tab: Script ───────────────────────────────────────────────────────────────
-function ScriptTab({ scenes }: { scenes: Scene[] }) {
+// ─── Stage Card Shell ─────────────────────────────────────────────────────────
+function StageCard({
+  icon, title, status, isRunning, isDisabled, logs,
+  onRun, onStop, children,
+}: {
+  icon: React.ReactNode
+  title: string
+  status: 'done' | 'partial' | 'none'
+  isRunning: boolean
+  isDisabled: boolean
+  logs: string[]
+  onRun: () => void
+  onStop: () => void
+  children: React.ReactNode
+}) {
   return (
-    <div className="space-y-4">
-      {scenes.map(scene => (
-        <div key={scene.scene_id} className="bg-[#12121a] border border-[#2a2a3d] rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-xs font-mono text-[#7c6fcd] bg-[#7c6fcd]/10 px-2 py-0.5 rounded-full">
-              Scene {scene.scene_id}
-            </span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-[#1a1a26] text-[#8888a8] capitalize">{scene.mood}</span>
-            <span className="text-xs text-[#555570] flex items-center gap-1 ml-auto">
-              <Clock size={10} />~{scene.duration_estimate}s
-            </span>
-          </div>
-          <div className="space-y-2">
-            {scene.audio_sequence.map((seg: AudioSegment, i: number) => (
-              <div key={i} className={cn(
-                'rounded-lg p-3 text-xs',
-                seg.type === 'narration'
-                  ? 'bg-[#1a1a26] border border-[#2a2a3d]'
-                  : 'bg-[#7c6fcd]/5 border border-[#7c6fcd]/20'
-              )}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={seg.type === 'narration' ? 'text-[#8888a8] font-semibold' : 'text-[#7c6fcd] font-semibold'}>
-                    {seg.type === 'narration' ? 'Narrator' : seg.character}
-                  </span>
-                  {seg.voice_instruction && (
-                    <span className="text-[#555570] italic">({seg.voice_instruction})</span>
-                  )}
-                </div>
-                <p className="text-white leading-relaxed">{seg.text}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 pt-3 border-t border-[#2a2a3d]">
-            <p className="text-xs text-[#555570] mb-1">Image Prompt</p>
-            <p className="text-xs text-[#8888a8] italic leading-relaxed">{scene.image_prompt}</p>
+    <div className={cn(
+      'rounded-2xl border transition-colors',
+      isRunning
+        ? 'border-[#7c6fcd]/60 shadow-lg shadow-[#7c6fcd]/10'
+        : status === 'done'
+          ? 'border-[#2a2a3d]'
+          : 'border-[#2a2a3d]'
+    )}>
+      {/* Card header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-[#2a2a3d]">
+        <div className={cn(
+          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+          isRunning ? 'bg-[#7c6fcd]/20 text-[#7c6fcd]'
+            : status === 'done' ? 'bg-green-500/10 text-green-400'
+            : status === 'partial' ? 'bg-yellow-500/10 text-yellow-400'
+            : 'bg-[#1a1a26] text-[#555570]'
+        )}>
+          {isRunning ? <Loader2 size={15} className="animate-spin" /> : icon}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">{title}</span>
+            {status === 'done'    && !isRunning && <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-medium">done</span>}
+            {status === 'partial' && !isRunning && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 font-medium">partial</span>}
+            {status === 'none'    && !isRunning && <span className="text-xs px-2 py-0.5 rounded-full bg-[#1a1a26] text-[#555570]">not run</span>}
+            {isRunning && <span className="text-xs px-2 py-0.5 rounded-full bg-[#7c6fcd]/15 text-[#7c6fcd] font-medium">running...</span>}
           </div>
         </div>
-      ))}
+
+        <button
+          onClick={isRunning ? onStop : onRun}
+          disabled={isDisabled && !isRunning}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0',
+            isRunning
+              ? 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25'
+              : status === 'done'
+                ? 'bg-[#1a1a26] border border-[#2a2a3d] text-[#8888a8] hover:text-white hover:border-[#3a3a4d]'
+                : 'bg-[#7c6fcd] text-white hover:bg-[#9585e0]',
+            isDisabled && !isRunning && 'opacity-30 cursor-not-allowed'
+          )}
+        >
+          {isRunning
+            ? <><XCircle size={12} />Stop</>
+            : status === 'done'
+              ? <><RotateCcw size={12} />Retry</>
+              : <><Play size={12} />Run</>
+          }
+        </button>
+      </div>
+
+      {/* Card body */}
+      <div className="p-5">
+        {children}
+        <LogPanel logs={logs} isRunning={isRunning} />
+      </div>
     </div>
   )
 }
 
-// ── Tab: Images ───────────────────────────────────────────────────────────────
-function ImagesTab({ scenes, isRunning }: { scenes: Scene[]; isRunning: boolean }) {
+// ─── Stage: Images ────────────────────────────────────────────────────────────
+function ImagesContent({ scenes, isRunning }: { scenes: Scene[]; isRunning: boolean }) {
   const [lightbox, setLightbox] = useState<string | null>(null)
   const doneCount = scenes.filter(s => s.image_file).length
+
+  if (!isRunning && doneCount === 0) {
+    return (
+      <div className="flex items-center gap-2 text-[#555570] text-sm py-2">
+        <ImageIcon size={15} className="opacity-40" />
+        Run this stage to generate a scene image for each scene.
+      </div>
+    )
+  }
 
   return (
     <>
       {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
-      <div className="mb-4 flex items-center gap-3">
-        <span className="text-sm text-[#8888a8]">{doneCount} / {scenes.length} scenes generated</span>
-        {isRunning && <span className="text-xs text-[#7c6fcd] flex items-center gap-1"><Loader2 size={12} className="animate-spin" />Generating...</span>}
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <p className="text-xs text-[#555570] mb-4">
+        {doneCount} / {scenes.length} scenes
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {scenes.map(scene => (
           <div key={scene.scene_id} className="group relative">
             <div className="aspect-[9/16] bg-[#12121a] border border-[#2a2a3d] rounded-xl overflow-hidden flex items-center justify-center">
               {scene.image_file ? (
                 <>
-                  <img
-                    src={`${BASE}/${scene.image_file}`}
-                    alt={`Scene ${scene.scene_id}`}
-                    className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                  />
-                  <button
-                    onClick={() => setLightbox(`${BASE}/${scene.image_file}`)}
-                    className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
-                    aria-label="Zoom image"
-                  >
-                    <ZoomIn size={24} className="text-white drop-shadow" />
+                  <img src={`${BASE}/${scene.image_file}`} alt={`Scene ${scene.scene_id}`}
+                    className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                  <button onClick={() => setLightbox(`${BASE}/${scene.image_file!}`)}
+                    className="absolute inset-0 bg-black/0 group-hover:bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                    aria-label="View full size">
+                    <ZoomIn size={22} className="text-white drop-shadow" />
                   </button>
-                  <div className="absolute top-2 right-2">
-                    <CheckCircle2 size={14} className="text-green-400 drop-shadow" />
-                  </div>
+                  <CheckCircle2 size={13} className="absolute top-1.5 right-1.5 text-green-400 drop-shadow" />
                 </>
               ) : isRunning ? (
-                <div className="flex flex-col items-center gap-2 text-[#555570]">
-                  <Loader2 size={20} className="animate-spin text-[#7c6fcd]" />
-                  <span className="text-xs">Generating</span>
+                <div className="flex flex-col items-center gap-1.5">
+                  <Loader2 size={18} className="animate-spin text-[#7c6fcd]" />
+                  <span className="text-xs text-[#555570]">gen...</span>
                 </div>
               ) : (
-                <ImageIcon size={24} className="text-[#2a2a3d]" />
+                <ImageIcon size={20} className="text-[#2a2a3d]" />
               )}
             </div>
-            <div className="mt-1.5 px-0.5">
-              <span className="text-xs font-mono text-[#7c6fcd]">Scene {scene.scene_id}</span>
-              <p className="text-xs text-[#555570] line-clamp-2 mt-0.5">{scene.image_prompt}</p>
-            </div>
+            <p className="mt-1 text-xs font-mono text-[#7c6fcd]">S{scene.scene_id}</p>
           </div>
         ))}
       </div>
@@ -229,46 +219,52 @@ function ImagesTab({ scenes, isRunning }: { scenes: Scene[]; isRunning: boolean 
   )
 }
 
-// ── Tab: Audio ────────────────────────────────────────────────────────────────
-function AudioTab({
+// ─── Stage: Audio ─────────────────────────────────────────────────────────────
+function AudioContent({
   short, projectName, isRunning
 }: { short: Short; projectName: string; isRunning: boolean }) {
   const { data: segments = [] } = useQuery({
     queryKey: ['segments', projectName, short.short_id],
     queryFn: () => shortsApi.segments(projectName, short.short_id).then(r => r.data),
-    enabled: !!short.audio_file,
+    enabled: !!short.audio_file || isRunning,
     refetchInterval: isRunning ? 3000 : false,
   })
-
-  // Flatten all audio_sequence across scenes for labels
   const allSegs = short.scenes.flatMap(s => s.audio_sequence)
 
+  if (!isRunning && !short.audio_file) {
+    return (
+      <div className="flex items-center gap-2 text-[#555570] text-sm py-2">
+        <Mic size={15} className="opacity-40" />
+        Run this stage to generate voice narration for all segments.
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Full stitched audio */}
-      <div className="bg-[#12121a] border border-[#2a2a3d] rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Volume2 size={16} className="text-[#7c6fcd]" />
-          <h3 className="text-sm font-semibold text-white">Final Narration Track</h3>
-          {isRunning && <Loader2 size={12} className="animate-spin text-[#7c6fcd]" />}
+    <div className="space-y-5">
+      {/* Stitched track */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Volume2 size={13} className="text-[#7c6fcd]" />
+          <span className="text-xs font-semibold text-white">Final track</span>
+          {isRunning && !short.audio_file && (
+            <span className="text-xs text-[#555570]">generating...</span>
+          )}
         </div>
-        {short.audio_file ? (
-          <audio src={`${BASE}/${short.audio_file}`} controls className="w-full" />
-        ) : (
-          <div className="flex items-center gap-2 text-[#555570] text-sm py-4">
-            <Mic size={16} className="opacity-40" />
-            {isRunning ? 'Generating audio...' : 'Audio not generated yet'}
-          </div>
-        )}
+        {short.audio_file
+          ? <audio src={`${BASE}/${short.audio_file}`} controls className="w-full" />
+          : <div className="h-10 bg-[#1a1a26] border border-[#2a2a3d] rounded-lg flex items-center px-3 text-xs text-[#555570]">
+              Stitching segments...
+            </div>
+        }
       </div>
 
-      {/* Per-segment players */}
+      {/* Segments */}
       {segments.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-white mb-3">
-            Individual Segments
-            <span className="ml-2 text-xs text-[#555570] font-normal">{segments.length} segments</span>
-          </h3>
+          <p className="text-xs font-semibold text-white mb-2">
+            Segments <span className="text-[#555570] font-normal ml-1">{segments.length}</span>
+          </p>
           <div className="space-y-2">
             {segments.map(seg => {
               const meta = allSegs[seg.index]
@@ -279,233 +275,314 @@ function AudioTab({
                     ? 'bg-[#7c6fcd]/5 border-[#7c6fcd]/20'
                     : 'bg-[#12121a] border-[#2a2a3d]'
                 )}>
-                  <div className="flex items-start justify-between gap-4 mb-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs font-mono text-[#555570]">#{seg.index}</span>
-                        <span className={cn(
-                          'text-xs font-semibold',
-                          meta?.type === 'dialogue' ? 'text-[#7c6fcd]' : 'text-[#8888a8]'
-                        )}>
-                          {meta?.type === 'dialogue' ? meta.character : 'Narrator'}
-                        </span>
-                        {meta?.voice_instruction && (
-                          <span className="text-xs text-[#555570] italic">({meta.voice_instruction})</span>
-                        )}
-                      </div>
-                      {meta?.text && (
-                        <p className="text-xs text-white leading-relaxed line-clamp-2">{meta.text}</p>
-                      )}
-                    </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-mono text-[#555570] tabular-nums">#{String(seg.index).padStart(3, '0')}</span>
+                    <span className={cn('text-xs font-semibold',
+                      meta?.type === 'dialogue' ? 'text-[#7c6fcd]' : 'text-[#8888a8]')}>
+                      {meta?.type === 'dialogue' ? meta.character : 'Narrator'}
+                    </span>
+                    {meta?.voice_instruction && (
+                      <span className="text-xs text-[#555570] italic truncate">({meta.voice_instruction})</span>
+                    )}
                   </div>
-                  <audio src={`${BASE}/${seg.url}`} controls className="w-full h-8" style={{ height: 32 }} />
+                  {meta?.text && (
+                    <p className="text-xs text-white leading-relaxed mb-2 line-clamp-2">{meta.text}</p>
+                  )}
+                  <audio src={`${BASE}/${seg.url}`} controls className="w-full" style={{ height: 28 }} />
                 </div>
               )
             })}
           </div>
         </div>
       )}
-
-      {!short.audio_file && !isRunning && segments.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#8888a8]">
-          <Mic size={40} className="opacity-20" />
-          <p className="text-sm">Run the Audio stage to generate voice narration</p>
-        </div>
-      )}
     </div>
   )
 }
 
-// ── Tab: Subtitles ────────────────────────────────────────────────────────────
-function SubtitlesTab({ short, isRunning }: { short: Short; isRunning: boolean }) {
-  // Parse ASS content — extract just the dialogue lines for a readable preview
+// ─── Stage: Subtitles ─────────────────────────────────────────────────────────
+function SubtitlesContent({ short, isRunning }: { short: Short; isRunning: boolean }) {
   const [assContent, setAssContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const loadAss = async () => {
-    if (!short.subtitle_file || assContent !== null) return
-    setLoading(true)
-    try {
-      const res = await fetch(`${BASE}/${short.subtitle_file}`)
-      setAssContent(await res.text())
-    } catch {
-      setAssContent('Failed to load subtitle file')
-    } finally {
-      setLoading(false)
+  // Auto-load when file becomes available
+  useEffect(() => {
+    if (short.subtitle_file && assContent === null && !loading) {
+      setLoading(true)
+      fetch(`${BASE}/${short.subtitle_file}`)
+        .then(r => r.text())
+        .then(t => setAssContent(t))
+        .catch(() => setAssContent(''))
+        .finally(() => setLoading(false))
     }
-  }
+  }, [short.subtitle_file, assContent, loading])
 
-  // Parse dialogue lines from ASS into readable text
   const lines = assContent
-    ? assContent
-        .split('\n')
+    ? assContent.split('\n')
         .filter(l => l.startsWith('Dialogue:'))
         .map(l => {
-          // ASS dialogue format: Dialogue: 0,start,end,Style,,0,0,0,,{tags}text
           const parts = l.split(',')
           const start = parts[1] ?? ''
-          const rawText = parts.slice(9).join(',')
-          // Strip ASS override tags like {\kf50\1c&H...}
-          const text = rawText.replace(/\{[^}]*\}/g, '').trim()
+          const raw = parts.slice(9).join(',')
+          const text = raw.replace(/\{[^}]*\}/g, '').trim()
           return { start, text }
         })
         .filter(l => l.text)
     : []
 
+  if (!isRunning && !short.subtitle_file) {
+    return (
+      <div className="flex items-center gap-2 text-[#555570] text-sm py-2">
+        <FileText size={15} className="opacity-40" />
+        Run this stage to transcribe audio and generate karaoke subtitles.
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
-      {short.subtitle_file ? (
-        <>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-[#8888a8]">
-              ASS karaoke subtitle file generated
-            </span>
-            <a
-              href={`${BASE}/${short.subtitle_file}`}
-              download
-              className="flex items-center gap-1 text-xs px-3 py-1 bg-[#2a2a3d] hover:bg-[#3a3a4d] text-[#8888a8] hover:text-white rounded-lg transition-colors"
-            >
-              <Download size={11} /> Download .ass
-            </a>
+    <div className="space-y-4">
+      {short.subtitle_file && (
+        <div className="flex items-center gap-3">
+          <CheckCircle2 size={14} className="text-green-400" />
+          <span className="text-sm text-white">Subtitle file ready</span>
+          <a href={`${BASE}/${short.subtitle_file}`} download
+            className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#1a1a26] border border-[#2a2a3d] hover:border-[#7c6fcd]/50 text-[#8888a8] hover:text-white rounded-lg transition-colors">
+            <Download size={11} /> Download .ass
+          </a>
+        </div>
+      )}
+
+      {isRunning && !short.subtitle_file && (
+        <div className="flex items-center gap-2 text-[#555570] text-sm">
+          <Loader2 size={14} className="animate-spin text-[#7c6fcd]" />
+          Transcribing audio with Whisper...
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-xs text-[#555570]">
+          <Loader2 size={12} className="animate-spin" /> Loading preview...
+        </div>
+      )}
+
+      {lines.length > 0 && (
+        <div className="bg-[#0a0a0f] border border-[#2a2a3d] rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a3d]">
+            <span className="text-xs font-semibold text-white">Subtitle lines</span>
+            <span className="text-xs text-[#555570]">{lines.length} lines</span>
           </div>
-
-          {/* Preview button */}
-          {assContent === null && (
-            <button
-              onClick={loadAss}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1a1a26] border border-[#2a2a3d] hover:border-[#7c6fcd]/50 text-[#8888a8] hover:text-white rounded-xl text-sm transition-colors"
-            >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-              Preview Subtitle Lines
-            </button>
-          )}
-
-          {lines.length > 0 && (
-            <div className="bg-[#12121a] border border-[#2a2a3d] rounded-2xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#2a2a3d] flex items-center justify-between">
-                <span className="text-sm font-semibold text-white">Subtitle Lines</span>
-                <span className="text-xs text-[#555570]">{lines.length} lines</span>
+          <div className="divide-y divide-[#1a1a26] max-h-64 overflow-y-auto">
+            {lines.map((line, i) => (
+              <div key={i} className="flex items-baseline gap-4 px-4 py-1.5">
+                <span className="text-xs font-mono text-[#555570] w-16 shrink-0 tabular-nums">{line.start}</span>
+                <p className="text-xs text-white leading-relaxed">{line.text}</p>
               </div>
-              <div className="divide-y divide-[#1a1a26] max-h-[60vh] overflow-y-auto">
-                {lines.map((line, i) => (
-                  <div key={i} className="flex items-baseline gap-4 px-4 py-2">
-                    <span className="text-xs font-mono text-[#555570] w-16 shrink-0">{line.start}</span>
-                    <p className="text-sm text-white">{line.text}</p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Stage: Video ─────────────────────────────────────────────────────────────
+function VideoContent({ short, isRunning }: { short: Short; isRunning: boolean }) {
+  if (!isRunning && !short.video_file) {
+    return (
+      <div className="flex items-center gap-2 text-[#555570] text-sm py-2">
+        <Film size={15} className="opacity-40" />
+        Run this stage to assemble the final MP4 with audio, subtitles and music.
+      </div>
+    )
+  }
+
+  if (isRunning && !short.video_file) {
+    return (
+      <div className="flex items-center gap-2 text-[#555570] text-sm py-2">
+        <Loader2 size={14} className="animate-spin text-[#7c6fcd]" />
+        Assembling video...
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex gap-8 items-start">
+      <div className="w-52 aspect-[9/16] bg-[#0a0a0f] border border-[#2a2a3d] rounded-2xl overflow-hidden shrink-0">
+        <video src={`${BASE}/${short.video_file}`} controls className="w-full h-full object-contain" />
+      </div>
+      <div className="flex flex-col gap-3 pt-1">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={15} className="text-green-400" />
+          <span className="text-sm text-white font-medium">Video assembled</span>
+        </div>
+        <p className="text-xs text-[#8888a8]">
+          {short.scenes.length} scenes · {short.total_duration_estimate}s
+        </p>
+        <a href={`${BASE}/${short.video_file}`} download
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#7c6fcd] hover:bg-[#9585e0] text-white rounded-xl text-sm font-semibold transition-colors w-fit">
+          <Download size={14} /> Download MP4
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ─── Script Panel (collapsible) ───────────────────────────────────────────────
+function ScriptPanel({ scenes }: { scenes: Scene[] }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="rounded-2xl border border-[#2a2a3d]">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-[#ffffff04] transition-colors rounded-2xl"
+      >
+        <div className="w-8 h-8 rounded-lg bg-[#1a1a26] flex items-center justify-center text-[#8888a8] shrink-0">
+          <FileText size={15} />
+        </div>
+        <span className="text-sm font-semibold text-white flex-1 text-left">Script</span>
+        <span className="text-xs text-[#555570] mr-2">{scenes.length} scenes</span>
+        {open ? <ChevronUp size={15} className="text-[#555570]" /> : <ChevronDown size={15} className="text-[#555570]" />}
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 space-y-3 border-t border-[#2a2a3d] pt-4">
+          {scenes.map(scene => (
+            <div key={scene.scene_id} className="bg-[#0d0d14] border border-[#2a2a3d] rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs font-mono text-[#7c6fcd] bg-[#7c6fcd]/10 px-2 py-0.5 rounded-full">
+                  Scene {scene.scene_id}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-[#1a1a26] text-[#8888a8] capitalize">{scene.mood}</span>
+                <span className="text-xs text-[#555570] flex items-center gap-1 ml-auto">
+                  <Clock size={10} />~{scene.duration_estimate}s
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {scene.audio_sequence.map((seg: AudioSegment, i: number) => (
+                  <div key={i} className={cn(
+                    'rounded-lg px-3 py-2 text-xs',
+                    seg.type === 'narration'
+                      ? 'bg-[#12121a] border border-[#2a2a3d]'
+                      : 'bg-[#7c6fcd]/5 border border-[#7c6fcd]/20'
+                  )}>
+                    <span className={cn('font-semibold mr-2',
+                      seg.type === 'narration' ? 'text-[#8888a8]' : 'text-[#7c6fcd]')}>
+                      {seg.type === 'narration' ? 'Narrator' : seg.character}
+                    </span>
+                    {seg.voice_instruction && (
+                      <span className="text-[#555570] italic mr-2">({seg.voice_instruction})</span>
+                    )}
+                    <span className="text-white">{seg.text}</span>
                   </div>
                 ))}
               </div>
+              <div className="mt-3 pt-3 border-t border-[#2a2a3d]">
+                <p className="text-xs text-[#555570] mb-1">Image prompt</p>
+                <p className="text-xs text-[#8888a8] italic leading-relaxed">{scene.image_prompt}</p>
+              </div>
             </div>
-          )}
-        </>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#8888a8]">
-          <FileText size={40} className="opacity-20" />
-          {isRunning
-            ? <><Loader2 size={16} className="animate-spin text-[#7c6fcd]" /><p className="text-sm">Transcribing audio...</p></>
-            : <p className="text-sm">Run the Subtitles stage to generate karaoke subtitles</p>
-          }
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ── Tab: Video ────────────────────────────────────────────────────────────────
-function VideoTab({ short, isRunning }: { short: Short; isRunning: boolean }) {
-  return (
-    <div className="space-y-6">
-      {short.video_file ? (
-        <>
-          <div className="flex items-center gap-3">
-            <CheckCircle2 size={16} className="text-green-400" />
-            <span className="text-sm text-white">Video assembled successfully</span>
-            <a
-              href={`${BASE}/${short.video_file}`}
-              download
-              className="ml-auto flex items-center gap-2 px-4 py-2 bg-[#7c6fcd] hover:bg-[#9585e0] text-white rounded-xl font-medium text-sm transition-colors"
-            >
-              <Download size={14} /> Download MP4
-            </a>
-          </div>
-          <div className="flex justify-center">
-            <div className="w-72 aspect-[9/16] bg-[#12121a] border border-[#2a2a3d] rounded-2xl overflow-hidden">
-              <video
-                src={`${BASE}/${short.video_file}`}
-                controls
-                className="w-full h-full object-contain"
-              />
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#8888a8]">
-          <Film size={40} className="opacity-20" />
-          {isRunning
-            ? <><Loader2 size={16} className="animate-spin text-[#7c6fcd]" /><p className="text-sm">Assembling video...</p></>
-            : <p className="text-sm">Run the Video stage to assemble the final MP4</p>
-          }
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ShortDetail() {
   const { name, shortId } = useParams<{ name: string; shortId: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState<TabName>('script')
-  const [runningStage, setRunningStage] = useState<StageName | null>(null)
+  // job_id of the currently running stage (null when idle)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [activeStage, setActiveStage] = useState<StageName | null>(null)
   const [stageLogs, setStageLogs] = useState<Record<StageName, string[]>>({
-    images: [], audio: [], subtitles: [], video: []
+    images: [], audio: [], subtitles: [], video: [],
   })
-  const wsRef = useRef<WebSocket | null>(null)
+  // log offset — how many lines we've fetched so far
+  const logOffsetRef = useRef(0)
+  const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // ── Short status polling ───────────────────────────────────────────────────
   const { data: short, isLoading } = useQuery({
     queryKey: ['short', name, shortId],
     queryFn: () => shortsApi.get(name!, shortId!).then(r => r.data),
     enabled: !!name && !!shortId,
-    refetchInterval: runningStage ? 2000 : false,
+    refetchInterval: activeStage ? 2000 : false,
   })
 
-  const addLog = useCallback((stage: StageName, msg: string) => {
-    setStageLogs(prev => ({
-      ...prev,
-      [stage]: [...prev[stage].slice(-150), msg]
-    }))
+  // Detect in-progress status on load (backend running, page was refreshed)
+  const resumedStage = short && !activeStage ? (STATUS_TO_STAGE[short.status] ?? null) : null
+
+  // Keep polling status while a resumed job is running
+  useEffect(() => {
+    if (resumedStage && !activeStage) {
+      qc.invalidateQueries({ queryKey: ['short', name, shortId] })
+    }
+  }, [resumedStage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Log polling ────────────────────────────────────────────────────────────
+  const startLogPolling = useCallback((jobId: string, stage: StageName) => {
+    logOffsetRef.current = 0
+    logPollRef.current = setInterval(async () => {
+      try {
+        const { data } = await jobsApi.logs(jobId, logOffsetRef.current)
+        if (data.lines.length > 0) {
+          logOffsetRef.current += data.lines.length
+          setStageLogs(prev => ({
+            ...prev,
+            [stage]: [...prev[stage], ...data.lines].slice(-200),
+          }))
+        }
+        if (data.done) {
+          clearInterval(logPollRef.current!)
+          logPollRef.current = null
+          setActiveJobId(null)
+          setActiveStage(null)
+          qc.invalidateQueries({ queryKey: ['short', name, shortId] })
+          qc.invalidateQueries({ queryKey: ['segments', name, shortId] })
+        }
+      } catch {
+        // job may have expired from memory — just stop polling
+        clearInterval(logPollRef.current!)
+        logPollRef.current = null
+        setActiveJobId(null)
+        setActiveStage(null)
+      }
+    }, 1000)
+  }, [name, shortId, qc])
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    if (logPollRef.current) clearInterval(logPollRef.current)
   }, [])
 
-  const runStage = (stage: StageName) => {
-    if (runningStage) return
-    setRunningStage(stage)
-    setActiveTab(stage)
+  // ── Run a stage ────────────────────────────────────────────────────────────
+  const runStage = async (stage: StageName) => {
+    if (activeStage) return
     setStageLogs(prev => ({ ...prev, [stage]: [] }))
-
-    const ws = new WebSocket(`ws://localhost:8000/ws/stage/${name}/${shortId}/${stage}`)
-    wsRef.current = ws
-
-    ws.onopen = () => addLog(stage, `Starting ${stage}...`)
-    ws.onmessage = (e) => {
-      const event = JSON.parse(e.data)
-      if (event.message) addLog(stage, event.message)
-      if (event.event === 'stage_complete' || event.event === 'error') {
-        setRunningStage(null)
-        qc.invalidateQueries({ queryKey: ['short', name, shortId] })
-        qc.invalidateQueries({ queryKey: ['segments', name, shortId] })
-        ws.close()
-      }
+    setActiveStage(stage)
+    try {
+      const { data } = await jobsApi.startStage(name!, shortId!, stage)
+      setActiveJobId(data.job_id)
+      startLogPolling(data.job_id, stage)
+    } catch (e) {
+      setStageLogs(prev => ({ ...prev, [stage]: [`Failed to start: ${e}`] }))
+      setActiveStage(null)
     }
-    ws.onerror  = () => { addLog(stage, 'WebSocket error — is the backend running?'); setRunningStage(null) }
-    ws.onclose  = () => setRunningStage(null)
   }
 
   const stopStage = () => {
-    wsRef.current?.close()
-    setRunningStage(null)
+    // We can't cancel the backend task, but we stop watching it
+    if (logPollRef.current) clearInterval(logPollRef.current)
+    logPollRef.current = null
+    setActiveJobId(null)
+    setActiveStage(null)
   }
+
+  // visibleRunning = live job OR detected resumed job from status
+  const visibleRunning = activeStage ?? resumedStage
 
   if (isLoading || !short) {
     return (
@@ -515,109 +592,74 @@ export default function ShortDetail() {
     )
   }
 
-  const TABS: { key: TabName; label: string; icon: React.ReactNode }[] = [
-    { key: 'script',    label: 'Script',    icon: <FileText size={14} /> },
-    { key: 'images',    label: 'Images',    icon: <ImageIcon size={14} /> },
-    { key: 'audio',     label: 'Audio',     icon: <Mic size={14} /> },
-    { key: 'subtitles', label: 'Subtitles', icon: <FileText size={14} /> },
-    { key: 'video',     label: 'Video',     icon: <Video size={14} /> },
-  ]
-
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="p-8 max-w-5xl mx-auto space-y-4">
+
       {/* Header */}
-      <div className="flex items-center gap-4 px-8 py-5 border-b border-[#2a2a3d] bg-[#12121a] shrink-0">
-        <button onClick={() => navigate(`/projects/${name}`)} className="text-[#8888a8] hover:text-white transition-colors">
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={() => navigate(`/projects/${name}`)}
+          className="text-[#8888a8] hover:text-white transition-colors">
           <ChevronLeft size={20} />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-white truncate">{short.title || short.short_id}</h1>
+          <h1 className="text-xl font-bold text-white truncate">{short.title || short.short_id}</h1>
           <div className="flex items-center gap-3 mt-0.5">
             <span className={cn('text-xs', statusColor(short.status))}>{statusLabel(short.status)}</span>
-            <span className="text-[#555570] text-xs flex items-center gap-1"><Clock size={10} />{short.total_duration_estimate}s</span>
+            <span className="text-[#555570] text-xs flex items-center gap-1">
+              <Clock size={10} />{short.total_duration_estimate}s
+            </span>
             <span className="text-[#555570] text-xs">{short.scenes.length} scenes</span>
           </div>
         </div>
         {short.video_file && (
-          <a
-            href={`${BASE}/${short.video_file}`}
-            download
-            className="flex items-center gap-2 px-4 py-2 bg-[#7c6fcd] hover:bg-[#9585e0] text-white rounded-xl font-medium text-sm transition-colors"
-          >
+          <a href={`${BASE}/${short.video_file}`} download
+            className="flex items-center gap-2 px-4 py-2 bg-[#7c6fcd] hover:bg-[#9585e0] text-white rounded-xl font-medium text-sm transition-colors">
             <Download size={14} /> Download MP4
           </a>
         )}
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar: stage controls */}
-        <aside className="w-64 shrink-0 border-r border-[#2a2a3d] flex flex-col bg-[#0d0d14] overflow-y-auto">
-          <div className="p-4 space-y-2">
-            <p className="text-xs text-[#555570] uppercase tracking-wider font-semibold mb-3 px-1">Pipeline</p>
-            {STAGES.map(({ key, label }) => (
-              <StageControl
-                key={key}
-                stage={key}
-                label={label}
-                status={stageStatus(short, key)}
-                isRunning={runningStage === key}
-                isDisabled={!!runningStage}
-                logs={stageLogs[key]}
-                onRun={() => runStage(key)}
-                onStop={stopStage}
-              />
-            ))}
-          </div>
-        </aside>
-
-        {/* Main content: tabs */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex gap-1 px-6 pt-4 border-b border-[#2a2a3d] shrink-0">
-            {TABS.map(({ key, label, icon }) => {
-              const stageKey = key as StageName
-              const isDone = key !== 'script' && stageStatus(short, stageKey) === 'done'
-              const isPartial = key !== 'script' && stageStatus(short, stageKey) === 'partial'
-              const isActive = activeTab === key
-
-              return (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors relative',
-                    isActive
-                      ? 'text-white border-b-2 border-[#7c6fcd]'
-                      : 'text-[#8888a8] hover:text-white'
-                  )}
-                >
-                  {icon}
-                  {label}
-                  {key !== 'script' && (
-                    isDone
-                      ? <CheckCircle2 size={11} className="text-green-400" />
-                      : isPartial
-                        ? <AlertCircle size={11} className="text-yellow-400" />
-                        : null
-                  )}
-                  {runningStage === key && (
-                    <Loader2 size={11} className="animate-spin text-[#7c6fcd]" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {activeTab === 'script'    && <ScriptTab scenes={short.scenes} />}
-            {activeTab === 'images'    && <ImagesTab scenes={short.scenes} isRunning={runningStage === 'images'} />}
-            {activeTab === 'audio'     && <AudioTab short={short} projectName={name!} isRunning={runningStage === 'audio'} />}
-            {activeTab === 'subtitles' && <SubtitlesTab short={short} isRunning={runningStage === 'subtitles'} />}
-            {activeTab === 'video'     && <VideoTab short={short} isRunning={runningStage === 'video'} />}
-          </div>
+      {/* Resumed-job banner */}
+      {resumedStage && !activeStage && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-[#7c6fcd]/10 border border-[#7c6fcd]/30 rounded-xl text-sm">
+          <Loader2 size={14} className="animate-spin text-[#7c6fcd] shrink-0" />
+          <span className="text-white">
+            <span className="font-semibold capitalize">{resumedStage}</span> stage is still running in the background.
+          </span>
+          <span className="text-[#8888a8] text-xs ml-1">Polling for updates...</span>
         </div>
-      </div>
+      )}
+
+      <ScriptPanel scenes={short.scenes} />
+
+      <StageCard icon={<ImageIcon size={15} />} title="Scene Images"
+        status={stageStatus(short, 'images')} isRunning={visibleRunning === 'images'}
+        isDisabled={!!visibleRunning} logs={stageLogs.images}
+        onRun={() => runStage('images')} onStop={stopStage}>
+        <ImagesContent scenes={short.scenes} isRunning={visibleRunning === 'images'} />
+      </StageCard>
+
+      <StageCard icon={<Mic size={15} />} title="Voice Audio"
+        status={stageStatus(short, 'audio')} isRunning={visibleRunning === 'audio'}
+        isDisabled={!!visibleRunning} logs={stageLogs.audio}
+        onRun={() => runStage('audio')} onStop={stopStage}>
+        <AudioContent short={short} projectName={name!} isRunning={visibleRunning === 'audio'} />
+      </StageCard>
+
+      <StageCard icon={<FileText size={15} />} title="Subtitles"
+        status={stageStatus(short, 'subtitles')} isRunning={visibleRunning === 'subtitles'}
+        isDisabled={!!visibleRunning} logs={stageLogs.subtitles}
+        onRun={() => runStage('subtitles')} onStop={stopStage}>
+        <SubtitlesContent short={short} isRunning={visibleRunning === 'subtitles'} />
+      </StageCard>
+
+      <StageCard icon={<Video size={15} />} title="Video Assembly"
+        status={stageStatus(short, 'video')} isRunning={visibleRunning === 'video'}
+        isDisabled={!!visibleRunning} logs={stageLogs.video}
+        onRun={() => runStage('video')} onStop={stopStage}>
+        <VideoContent short={short} isRunning={visibleRunning === 'video'} />
+      </StageCard>
+
     </div>
   )
 }
