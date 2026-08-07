@@ -161,7 +161,94 @@ async def upload_music_file(name: str, file: UploadFile = File(...)):
     return {"filename": file.filename, "size": len(content)}
 
 
-# ─── Pipeline WebSocket ──────────────────────────────────────────────────────
+# ─── Per-Stage WebSocket ──────────────────────────────────────────────────────
+
+@app.websocket("/ws/stage/{project_name}/{short_id}/{stage}")
+async def stage_websocket(websocket: WebSocket, project_name: str, short_id: str, stage: str):
+    """Run a single pipeline stage for a specific Short, with live log streaming."""
+    await websocket.accept()
+
+    try:
+        config = load_project(project_name)
+        if not config:
+            await websocket.send_json({"event": "error", "message": f"Project '{project_name}' not found"})
+            return
+
+        short = load_short(project_name, short_id)
+        if not short:
+            await websocket.send_json({"event": "error", "message": f"Short '{short_id}' not found"})
+            return
+
+        api_key = os.getenv("GEMINI_API_KEY", "")
+
+        await websocket.send_json({"event": "start", "message": f"Running stage: {stage}"})
+
+        if stage == "images":
+            # Clear existing images for regeneration
+            from project_manager import get_project_subdirs
+            dirs = get_project_subdirs(project_name)
+            images_dir = dirs["images"] / short_id
+            if images_dir.exists():
+                import shutil
+                shutil.rmtree(images_dir)
+            for scene in short.scenes:
+                scene.image_file = None
+            save_short(project_name, short)
+
+            from services.stage2_image import run_stage2
+            async for event in run_stage2(project_name, short, config):
+                await websocket.send_json(event)
+
+        elif stage == "audio":
+            # Clear existing audio
+            dirs = get_project_subdirs(project_name)
+            audio_dir = dirs["audio"] / short_id
+            if audio_dir.exists():
+                import shutil
+                shutil.rmtree(audio_dir)
+            short.audio_file = None
+            save_short(project_name, short)
+
+            from services.stage3_voice import run_stage3
+            async for event in run_stage3(project_name, short, config):
+                await websocket.send_json(event)
+
+        elif stage == "subtitles":
+            # Clear existing subtitles
+            short.subtitle_file = None
+            save_short(project_name, short)
+            # Reload to get fresh audio_file
+            short = load_short(project_name, short_id)
+
+            from services.stage4_subtitles import run_stage4
+            async for event in run_stage4(project_name, short, config):
+                await websocket.send_json(event)
+
+        elif stage == "video":
+            # Clear existing video
+            short.video_file = None
+            short.status = "assembling"
+            save_short(project_name, short)
+            # Reload fresh
+            short = load_short(project_name, short_id)
+
+            from services.stage5_video import run_stage5
+            async for event in run_stage5(project_name, short, config):
+                await websocket.send_json(event)
+
+        else:
+            await websocket.send_json({"event": "error", "message": f"Unknown stage: {stage}"})
+            return
+
+        await websocket.send_json({"event": "stage_complete", "message": f"Stage '{stage}' complete"})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"event": "error", "message": str(e)})
+        except Exception:
+            pass
 
 @app.websocket("/ws/pipeline/{project_name}")
 async def pipeline_websocket(websocket: WebSocket, project_name: str):
