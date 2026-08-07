@@ -205,20 +205,20 @@ def generate_tts_clone(
     language: str = "auto",
 ) -> bool:
     """
-    Generate speech using IndexTTS2, cloning the reference voice.
-    Supports emotion tags in text: [happy], [sad], [fear], [anger], [calm], [disgust], [surprised], [melancholic]
+    Generate speech by cloning a reference voice using Qwen3-TTS Base.
     Returns True on success.
     """
     try:
         settings = {
-            "model_type": "index_tts2",
+            "model_type": "qwen3_tts_base",
             "prompt": text,
             "audio_guide": str(reference_audio),
             "audio_prompt_type": "A",
+            "model_mode": language,
         }
         files = _run_job(settings)
         return _copy_first_output(files, output_path)
 
     except Exception as e:
-        print(f"[Wan2GP IndexTTS2] Error: {e}")
+        print(f"[Wan2GP TTS Clone] Error: {e}")
         return False

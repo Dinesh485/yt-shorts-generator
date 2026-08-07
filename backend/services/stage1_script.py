@@ -94,10 +94,6 @@ Produce a single JSON object with this exact structure:
 
 IMPORTANT RULES:
 - audio_sequence is the ordered list of ALL spoken content (narration and dialogue interleaved naturally)
-- For dialogue lines, prefix the text with an emotion tag: [happy], [sad], [fear], [anger], [calm], [disgust], [surprised], [melancholic]
-  Example: "[fear] I cannot raise my bow against my own kin."
-- Narration does not need emotion tags
-- voice_instruction should still reflect the emotion for reference, but the tag in the text is what drives the TTS
 - image_prompt must include the art style: "{style}"
 - image_prompt must describe the scene visually with character descriptions from the archive
 - mood must be one of: battle, dialogue, tragedy, celebration, default
