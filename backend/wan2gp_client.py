@@ -203,12 +203,9 @@ def generate_tts_clone(
     output_path: Path,
     reference_audio: Path,
     language: str = "auto",
-    emotion: str = "",
 ) -> bool:
     """
     Generate speech by cloning a reference voice using Qwen3-TTS Base.
-    emotion is passed via alt_prompt — officially for reference transcript
-    but may influence emotional delivery. Worth testing.
     Returns True on success.
     """
     try:
@@ -219,9 +216,6 @@ def generate_tts_clone(
             "audio_prompt_type": "A",
             "model_mode": language,
         }
-        if emotion:
-            settings["alt_prompt"] = emotion
-
         files = _run_job(settings)
         return _copy_first_output(files, output_path)
 

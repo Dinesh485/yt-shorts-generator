@@ -168,7 +168,6 @@ async def run_stage3(
             output_path=seg_file,
             reference_audio=reference,
             language="auto",
-            emotion=segment.voice_instruction,
         ) if reference else generate_tts_voice_design(
             text=segment.text,
             output_path=seg_file,
